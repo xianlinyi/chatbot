@@ -1,0 +1,35 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 3000
+  },
+  "app": {
+    "name": "Agent Chatbot",
+    "icon": "spark"
+  },
+  "provider": {
+    "name": "github-copilot",
+    "model": "gpt-4.1",
+    "auth": {
+      "githubTokenEnv": "GITHUB_TOKEN",
+      "useLoggedInUser": false
+    },
+    "instructions": "You are a helpful local coding agent exposed through a lightweight web chat. Be concise, practical, and explicit about actions you can or cannot take.",
+    "customAgents": [
+      {
+        "name": "general",
+        "displayName": "General Agent",
+        "description": "General-purpose local assistant for coding, planning, debugging, and repository questions.",
+        "prompt": "You are a general-purpose coding assistant. Help the user solve software engineering tasks clearly and safely.",
+        "tools": null,
+        "infer": true
+      }
+    ],
+    "skillDirectories": [],
+    "disabledSkills": [],
+    "mcpServers": {},
+    "permissions": {
+      "mode": "allow-all"
+    }
+  }
+}
