@@ -41,44 +41,7 @@ export type ChatMessage = {
   content: string;
   status?: "streaming" | "done" | "error";
   isNew?: boolean;
-  activities?: ActivityItem[];
   inputRequests?: InputRequest[];
-  usage?: UsageStats;
-};
-
-export type ActivityItem = {
-  id: string;
-  title: string;
-  detail?: string;
-  level?: "info" | "warning" | "error";
-  category?:
-    | "assistant"
-    | "command"
-    | "control"
-    | "external_tool"
-    | "permission"
-    | "plan"
-    | "session"
-    | "skill"
-    | "subagent"
-    | "system"
-    | "tool"
-    | "user_input";
-  status?: "running" | "complete";
-  key?: string;
-  skills?: SkillSummary[];
-};
-
-export type SkillSummary = {
-  name: string;
-  description?: string;
-  path?: string;
-  source?: string;
-  pluginName?: string;
-  pluginVersion?: string;
-  allowedTools?: string[];
-  enabled?: boolean;
-  userInvocable?: boolean;
 };
 
 export type InputRequest = {
@@ -105,11 +68,9 @@ export type StreamEvent =
       content: string;
     }
   | {
-      type: "activity";
-      event: {
-        type?: string;
-        data?: Record<string, unknown>;
-      };
+      type: "tool";
+      eventType: string;
+      data: Record<string, unknown>;
     }
   | {
       type: "input_request";
@@ -117,11 +78,6 @@ export type StreamEvent =
       question: string;
       choices?: string[];
       allowFreeform: boolean;
-    }
-  | {
-      type: "input_response";
-      requestId: string;
-      answer: string;
     }
   | {
       type: "done";

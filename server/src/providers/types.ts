@@ -36,13 +36,7 @@ export type AgentSession = {
 export type AgentStreamEvent =
   | { type: "session"; sessionId: string; created: boolean }
   | { type: "delta"; content: string }
-  | {
-      type: "activity";
-      event: {
-        type?: string;
-        data?: Record<string, unknown>;
-      };
-    }
+  | { type: "tool"; eventType: string; data: Record<string, unknown> }
   | {
       type: "input_request";
       requestId: string;
@@ -50,7 +44,6 @@ export type AgentStreamEvent =
       choices?: string[];
       allowFreeform: boolean;
     }
-  | { type: "input_response"; requestId: string; answer: string }
   | { type: "done" }
   | { type: "error"; message: string };
 

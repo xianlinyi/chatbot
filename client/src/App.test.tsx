@@ -57,29 +57,11 @@ describe("App", () => {
               );
               controller.enqueue(
                 encoder.encode(
-                  'event: activity\ndata: {"type":"activity","event":{"type":"assistant.usage","data":{"model":"test-model","inputTokens":10,"outputTokens":4,"duration":1200}}}\n\n'
+                  'event: delta\ndata: {"type":"delta","content":"hello world"}\n\n'
                 )
               );
-              controller.enqueue(
-                encoder.encode(
-                  'event: activity\ndata: {"type":"activity","event":{"type":"tool.execution_start","data":{"toolCallId":"tool-1","toolName":"bash","arguments":{"command":"git status --short"}}}}\n\n'
-                )
-              );
-              controller.enqueue(
-                encoder.encode(
-                  'event: activity\ndata: {"type":"activity","event":{"type":"skill.invoked","data":{"name":"imagegen","description":"Generate images","path":"/skills/imagegen/SKILL.md","content":"secret skill body"}}}\n\n'
-                )
-              );
-              controller.enqueue(
-                encoder.encode(
-                  'event: input_request\ndata: {"type":"input_request","requestId":"request-1","question":"选择提交类型？","choices":["feat","fix"],"allowFreeform":true}\n\n'
-                )
-              );
-              controller.enqueue(
-                encoder.encode(
-                  'event: delta\ndata: {"type":"delta","content":"hello <skill><name>commit</name><description>Commit changes</description><content>hidden skill markdown</content></skill>"}\n\n'
-                )
-              );
+              controller.enqueue(encoder.encode('event: done\ndata: {"type":"done"}\n\n'));
+              controller.close();
             }
           }),
           {
@@ -101,28 +83,7 @@ describe("App", () => {
     await userEvent.keyboard("{Enter}");
 
     expect(await screen.findByText("Hi")).toBeInTheDocument();
-    expect(await screen.findByText("hello")).toBeInTheDocument();
-    expect(await screen.findByText("commit")).toBeInTheDocument();
-    expect(await screen.findByText("imagegen")).toBeInTheDocument();
-    expect(screen.queryByText(/hidden skill markdown/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/secret skill body/)).not.toBeInTheDocument();
-    expect(await screen.findByText("正在调用工具 · bash")).toBeInTheDocument();
-    expect(await screen.findByText(/git status --short/)).toBeInTheDocument();
-    streamController?.enqueue(
-      encoder.encode(
-        'event: activity\ndata: {"type":"activity","event":{"type":"tool.execution_complete","data":{"toolCallId":"tool-1","toolName":"bash","success":true}}}\n\n'
-      )
-    );
-    await waitFor(() => expect(screen.queryByText("正在调用工具 · bash")).not.toBeInTheDocument());
-    streamController?.enqueue(encoder.encode('event: done\ndata: {"type":"done"}\n\n'));
-    streamController?.close();
-    expect(await screen.findByText("问题")).toBeInTheDocument();
-    expect(await screen.findByText("选择提交类型？")).toBeInTheDocument();
-    expect(await screen.findByText("选项")).toBeInTheDocument();
-    expect(await screen.findByText("feat")).toBeInTheDocument();
-    expect(screen.queryByText(/Model usage/)).not.toBeInTheDocument();
-    expect(await screen.findByText(/本轮总计 14 tokens/)).toBeInTheDocument();
-    expect(await screen.findByText(/Session 累计 14 tokens/)).toBeInTheDocument();
+    expect(await screen.findByText("hello world")).toBeInTheDocument();
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/messages",

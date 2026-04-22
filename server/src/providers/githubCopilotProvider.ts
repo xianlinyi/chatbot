@@ -5,7 +5,6 @@ import {
   extractAssistantDelta,
   extractAssistantMessageContent,
   isCopilotToolEvent,
-  parseCopilotActivity,
   type CopilotEvent
 } from "./copilotResponseParser.js";
 
@@ -142,15 +141,14 @@ export class GithubCopilotAgentProvider implements AgentProvider {
     const unsubscribeEvents = session.on((event) => {
       if (event.type === "assistant.message") {
         const content = extractAssistantMessageContent(event);
+        if (content && !runStats.assistantText) {
+          queue.push({ type: "delta", content });
+        }
         runStats.assistantText += content;
         this.log("Received assistant message", {
           sessionId,
           contentLength: content.length
         });
-        const activity = parseCopilotActivity(event);
-        if (activity) {
-          queue.push(activity);
-        }
         return;
       }
 
@@ -160,16 +158,7 @@ export class GithubCopilotAgentProvider implements AgentProvider {
           sessionId,
           eventType: event.type
         });
-        const activity = parseCopilotActivity(event);
-        if (activity) {
-          queue.push(activity);
-        }
-        return;
-      }
-
-      const activity = parseCopilotActivity(event);
-      if (activity) {
-        queue.push(activity);
+        queue.push({ type: "tool", eventType: event.type ?? "", data: event.data ?? {} });
       }
     });
     const unsubscribeDelta = session.on("assistant.message_delta", (event) => {
@@ -196,18 +185,7 @@ export class GithubCopilotAgentProvider implements AgentProvider {
 
     void session
       .sendAndWait({ prompt })
-      .then(async () => {
-        if (this.shouldAutoContinue(runStats)) {
-          const continuationPrompt =
-            "继续执行刚才的任务。不要只说明计划或说请稍等；请直接使用可用工具推进，直到完成、需要用户确认，或遇到无法自行解决的阻塞。";
-          this.log("Auto-continuing placeholder Copilot response", {
-            sessionId,
-            assistantTextLength: runStats.assistantText.length
-          });
-          queue.push({ type: "delta", content: "\n\n" });
-          await session.sendAndWait({ prompt: continuationPrompt, mode: "immediate" });
-        }
-
+      .then(() => {
         this.log("Copilot session completed message", {
           sessionId,
           toolEventCount: runStats.toolEventCount,
@@ -251,7 +229,6 @@ export class GithubCopilotAgentProvider implements AgentProvider {
     }
 
     this.pendingUserInputs.delete(requestId);
-    this.activeRuns.get(sessionId)?.queue.push({ type: "input_response", requestId, answer });
     pending.resolve({ answer, wasFreeform: true });
     return true;
   }
@@ -314,23 +291,6 @@ export class GithubCopilotAgentProvider implements AgentProvider {
       tokenLength: token?.length ?? 0,
       useLoggedInUser: this.config.provider.auth.useLoggedInUser
     };
-  }
-
-  private shouldAutoContinue(stats: MessageRunStats): boolean {
-    if (stats.toolEventCount > 0) {
-      return false;
-    }
-
-    const text = stats.assistantText.trim();
-    if (!text || text.length > 220) {
-      return false;
-    }
-
-    if (/(确认|是否|可以吗|要我|需要你|需要您|please confirm|confirm)/i.test(text)) {
-      return false;
-    }
-
-    return /(我会|我先|将会|准备|开始|稍等|请稍等|一步步|完成流程|继续|I'll|I will|let me|one moment)/i.test(text);
   }
 
   private requestUserInput(

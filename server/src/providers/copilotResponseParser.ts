@@ -1,5 +1,3 @@
-import type { AgentStreamEvent } from "./types.js";
-
 export type CopilotEvent = {
   type?: string;
   data?: Record<string, unknown> & {
@@ -14,7 +12,7 @@ export function extractAssistantDelta(event: CopilotEvent): string | undefined {
     return undefined;
   }
 
-  return nonEmptyString(event.data?.deltaContent ?? event.data?.content);
+  return stringOrUndefined(event.data?.deltaContent ?? event.data?.content);
 }
 
 export function extractAssistantMessageContent(event: CopilotEvent): string {
@@ -22,24 +20,13 @@ export function extractAssistantMessageContent(event: CopilotEvent): string {
     return "";
   }
 
-  return nonEmptyString(event.data?.content) ?? "";
+  return stringOrUndefined(event.data?.content) ?? "";
 }
 
 export function isCopilotToolEvent(event: CopilotEvent): boolean {
   return Boolean(event.type?.startsWith("tool."));
 }
 
-export function parseCopilotActivity(event: CopilotEvent): AgentStreamEvent | undefined {
-  if (!event.type) {
-    return undefined;
-  }
-
-  return {
-    type: "activity",
-    event
-  };
-}
-
-function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value : undefined;
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }

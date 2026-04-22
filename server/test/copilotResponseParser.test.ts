@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   extractAssistantDelta,
-  extractAssistantMessageContent,
-  parseCopilotActivity
+  extractAssistantMessageContent
 } from "../src/providers/copilotResponseParser.js";
 
 describe("copilotResponseParser", () => {
@@ -22,19 +21,19 @@ describe("copilotResponseParser", () => {
     ).toBe("hello world");
   });
 
-  it("wraps raw SDK events without display text", () => {
-    const event = {
-      type: "tool.execution_start",
-      data: {
-        toolCallId: "tool-1",
-        toolName: "bash",
-        arguments: { cmd: "npm test" }
-      }
-    };
+  it("preserves assistant whitespace-only content without filtering", () => {
+    expect(
+      extractAssistantDelta({
+        type: "assistant.message_delta",
+        data: { messageId: "msg-2", deltaContent: "\n  " }
+      })
+    ).toBe("\n  ");
 
-    expect(parseCopilotActivity(event)).toEqual({
-      type: "activity",
-      event
-    });
+    expect(
+      extractAssistantMessageContent({
+        type: "assistant.message",
+        data: { messageId: "msg-2", content: "  \n" }
+      })
+    ).toBe("  \n");
   });
 });

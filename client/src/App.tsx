@@ -1,15 +1,9 @@
-import { SkillPill, SkillActivityCard } from './components/SkillActivityCard.js';
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { answerUserInput, fetchAgentInfo, sendMessage } from "./api.js";
-import { completedActivityKey, formatActivityItem, parseUsageEvent } from "./components/CopilotEventHandlers.js";
-import type { ActivityItem, AgentInfoResponse, ChatMessage, InputRequest, SkillSummary, StreamEvent, UsageStats } from "./types.js";
+import type { AgentInfoResponse, ChatMessage, InputRequest } from "./types.js";
 
 const USER_MESSAGE_COLLAPSED_HEIGHT = 168;
-
-function createRandomId() {
-  return crypto.randomUUID();
-}
 
 function areBooleanRecordsEqual(left: Record<string, boolean>, right: Record<string, boolean>) {
   const leftKeys = Object.keys(left);
@@ -41,7 +35,7 @@ function LiquidGlassSurface({
     uDark: { value: number };
     uHasText: { value: number };
     uPointer: { value: THREE.Vector2 };
-  }>();
+  } | undefined>(undefined);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -294,81 +288,9 @@ function LiquidGlassSurface({
 }
 
 
-type MessageSegment =
-  | { type: "markdown"; content: string }
-  | { type: "skill"; skill: SkillSummary };
-
 function MessageContent({ content, isDarkMode }: { content: string; isDarkMode: boolean }) {
-  return <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{content}</div>;
-}
-
-function parseSkillSegments(content: string): MessageSegment[] {
-  if (!content) {
-    return [];
-  }
-
-  const segments: MessageSegment[] = [];
-  const skillPattern = /<skill\b[^>]*>[\s\S]*?<\/skill>/gi;
-  let cursor = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = skillPattern.exec(content))) {
-    if (match.index > cursor) {
-      const markdown = content.slice(cursor, match.index);
-      if (markdown.trim()) {
-        segments.push({ type: "markdown", content: markdown });
-      }
-    }
-
-    segments.push({ type: "skill", skill: skillSummaryFromSkillXml(match[0]) });
-    cursor = match.index + match[0].length;
-  }
-
-  const rest = content.slice(cursor);
-  if (rest.trim()) {
-    segments.push({ type: "markdown", content: rest });
-  }
-
-  return segments;
-}
-
-function skillSummaryFromSkillXml(xml: string): SkillSummary {
-  return {
-    name: xmlTagValue(xml, "name") ?? xmlAttributeValue(xml, "name") ?? "Skill",
-    description: xmlTagValue(xml, "description") ?? xmlTagValue(xml, "desc"),
-    path: xmlTagValue(xml, "path"),
-    source: xmlTagValue(xml, "source"),
-    pluginName: xmlTagValue(xml, "pluginName") ?? xmlTagValue(xml, "plugin"),
-    pluginVersion: xmlTagValue(xml, "pluginVersion")
-  };
-}
-
-function xmlTagValue(xml: string, tagName: string): string | undefined {
-  const match = new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "i").exec(xml);
-  return cleanXmlValue(match?.[1]);
-}
-
-function xmlAttributeValue(xml: string, attributeName: string): string | undefined {
-  const match = new RegExp(`<skill\\b[^>]*\\s${attributeName}=(["'])(.*?)\\1`, "i").exec(xml);
-  return cleanXmlValue(match?.[2]);
-}
-
-function cleanXmlValue(value: string | undefined): string | undefined {
-  const cleaned = value
-    ?.replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!cleaned) {
-    return undefined;
-  }
-
-  return cleaned
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+  void isDarkMode;
+  return <div className="raw-message-content">{content}</div>;
 }
 
 export function App() {
@@ -470,7 +392,6 @@ export default Counter;
   const [expandedUserMessages, setExpandedUserMessages] = useState<Record<string, boolean>>({});
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [overflowingUserMessages, setOverflowingUserMessages] = useState<Record<string, boolean>>({});
-  const [sessionUsage, setSessionUsage] = useState<UsageStats>({ inputTokens: 0, outputTokens: 0, duration: 0 });
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== "undefined") {
       return document.documentElement.classList.contains("dark") || window.matchMedia?.("(prefers-color-scheme: dark)").matches;
@@ -705,8 +626,13 @@ export default Counter;
           );
         }
 
-        if (event.type === "activity") {
-          appendAssistantActivity(assistantId, event);
+        if (event.type === "tool") {
+          const toolLine = `[${event.eventType}] ${JSON.stringify(event.data)}\n`;
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantId ? { ...message, content: message.content + toolLine } : message
+            )
+          );
         }
 
         if (event.type === "input_request") {
@@ -720,10 +646,6 @@ export default Counter;
           appendInputRequest(assistantId, request);
         }
 
-        if (event.type === "input_response") {
-          appendAssistantContent(assistantId, `\n\n**你已回答：** ${event.answer}\n\n`);
-        }
-
         if (event.type === "error") {
           setMessages((current) =>
             current.map((message) =>
@@ -734,9 +656,7 @@ export default Counter;
 
         if (event.type === "done") {
           setMessages((current) =>
-            current.map((message) =>
-              message.id === assistantId ? { ...message, status: "done", activities: message.activities?.filter(a => a.category === "skill") ?? [] } : message
-            )
+            current.map((message) => (message.id === assistantId ? { ...message, status: "done" } : message))
           );
         }
       }
@@ -751,69 +671,6 @@ export default Counter;
       // Ensure input is focused after message is sent
       setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }
-
-  function appendAssistantContent(assistantId: string, content: string) {
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === assistantId ? { ...message, content: message.content + content } : message
-      )
-    );
-  }
-
-  function appendAssistantActivity(assistantId: string, event: Extract<StreamEvent, { type: "activity" }>) {
-    const usage = parseUsageEvent(event);
-    if (usage) {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === assistantId ? { ...message, usage: addUsage(message.usage, usage) } : message
-        )
-      );
-      setSessionUsage((current) => addUsage(current, usage));
-      return;
-    }
-
-    const completedKey = completedActivityKey(event);
-    if (completedKey) {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === assistantId
-            ? {
-                ...message,
-                activities: (message.activities ?? []).filter((activity) => activity.key !== completedKey)
-              }
-            : message
-        )
-      );
-      return;
-    }
-
-    const activity = formatActivityItem(event, createRandomId);
-    if (!activity) {
-      return;
-    }
-
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === assistantId ? { ...message, activities: upsertActivity(message.activities, activity) } : message
-      )
-    );
-  }
-
-  function upsertActivity(current: ActivityItem[] | undefined, next: ActivityItem): ActivityItem[] {
-    if (!next.key) {
-      return next.category === "tool" || next.category === "skill" || next.level !== "info"
-        ? [...(current ?? []), next]
-        : current ?? [];
-    }
-
-    const activities = current ?? [];
-    const existingIndex = activities.findIndex((activity) => activity.key === next.key);
-    if (existingIndex === -1) {
-      return [...activities, next];
-    }
-
-    return activities.map((activity, index) => (index === existingIndex ? { ...activity, ...next } : activity));
   }
 
   function appendInputRequest(assistantId: string, request: InputRequest) {
@@ -936,19 +793,7 @@ export default Counter;
                     ) : null}
                   </div>
                 ) : (
-                  <div className="message-content">
-                    {message.content ? (
-                      <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                        {message.content.replace(/<skill\b[^>]*>[\s\S]*?<\/skill>/gi, '')}
-                      </div>
-                    ) : null}
-                    <AssistantToolActivity activities={message.activities ?? []} />
-                    <AssistantInputRequests requests={message.inputRequests ?? []} />
-                    {message.status === "streaming" ? <ThinkingTitle /> : null}
-                    {message.status !== "streaming" && message.usage ? (
-                      <div className="message-usage">{formatUsage(message.usage)}</div>
-                    ) : null}
-                  </div>
+                  message.content || null
                 )}
                 {message.content && (
                   <button 
@@ -1029,11 +874,6 @@ export default Counter;
                   Instructions
                 </span>
               )}
-              {sessionUsage.inputTokens || sessionUsage.outputTokens ? (
-                <span className="composer-hint composer-usage" title="Session token usage">
-                  {formatSessionUsage(sessionUsage)}
-                </span>
-              ) : null}
             </div>
             <button type="submit" aria-label="Send message" className="send-button">
               <SendIcon />
@@ -1056,22 +896,6 @@ function ThinkingTitle() {
         <span />
       </span>
     </div>
-  );
-}
-
-function AssistantToolActivity({ activities }: { activities: ActivityItem[] }) {
-  const skills = activities.filter(activity => activity.category === "skill" && activity.skills?.length);
-
-  if (!skills.length) {
-    return null;
-  }
-
-  return (
-    <section className="tool-activity" aria-label="Agent activity">
-      {skills.map((activity) => (
-        <SkillActivityCard key={activity.id} activity={activity} />
-      ))}
-    </section>
   );
 }
 
@@ -1102,32 +926,6 @@ function AssistantInputRequests({ requests }: { requests: InputRequest[] }) {
       ))}
     </div>
   );
-}
-
-function addUsage(current: UsageStats | undefined, next: UsageStats): UsageStats {
-  return {
-    inputTokens: (current?.inputTokens ?? 0) + next.inputTokens,
-    outputTokens: (current?.outputTokens ?? 0) + next.outputTokens,
-    duration: (current?.duration ?? 0) + next.duration
-  };
-}
-
-function formatUsage(usage: UsageStats): string {
-  const totalTokens = usage.inputTokens + usage.outputTokens;
-  return `本轮总计 ${totalTokens.toLocaleString()} tokens · 输入 ${usage.inputTokens.toLocaleString()} · 输出 ${usage.outputTokens.toLocaleString()} · ${formatDuration(usage.duration)}`;
-}
-
-function formatSessionUsage(usage: UsageStats): string {
-  const totalTokens = usage.inputTokens + usage.outputTokens;
-  return `Session 累计 ${totalTokens.toLocaleString()} tokens · 输入 ${usage.inputTokens.toLocaleString()} · 输出 ${usage.outputTokens.toLocaleString()}`;
-}
-
-function formatDuration(durationMs: number): string {
-  if (!durationMs) {
-    return "0s";
-  }
-
-  return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
 function SparkIcon() {

@@ -445,6 +445,12 @@ html.dark .user-message-card.overflowing.collapsed .user-message-clip::after {
   font-weight: 600;
 }
 
+.raw-message-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .thinking-title {
   display: inline-flex;
   align-items: center;
