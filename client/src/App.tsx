@@ -1,12 +1,8 @@
 import { SkillPill, SkillActivityCard } from './components/SkillActivityCard.js';
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import remarkGfm from "remark-gfm";
 import * as THREE from "three";
 import { answerUserInput, fetchAgentInfo, sendMessage } from "./api.js";
-import { completedActivityKey, formatActivityItem, parseUsageEvent } from "./agentEventPresenter.js";
+import { completedActivityKey, formatActivityItem, parseUsageEvent } from "./components/CopilotEventHandlers.js";
 import type { ActivityItem, AgentInfoResponse, ChatMessage, InputRequest, SkillSummary, StreamEvent, UsageStats } from "./types.js";
 
 const USER_MESSAGE_COLLAPSED_HEIGHT = 168;
@@ -303,43 +299,7 @@ type MessageSegment =
   | { type: "skill"; skill: SkillSummary };
 
 function MessageContent({ content, isDarkMode }: { content: string; isDarkMode: boolean }) {
-  const segments = parseSkillSegments(content);
-
-  return (
-    <>
-      {segments.map((segment, index) =>
-        segment.type === "skill" ? (
-          <SkillPill key={`skill-${index}-${segment.skill.name}`} skill={segment.skill} />
-        ) : (
-          <ReactMarkdown
-            key={`markdown-${index}`}
-            remarkPlugins={[remarkGfm]}
-            components={{
-              code({node, inline, className, children, ...props}) {
-                const match = /language-(\w+)/.exec(className || '');
-                return !inline && match ? (
-                  <SyntaxHighlighter
-                    style={isDarkMode ? vscDarkPlus : vs}
-                    language={match[1]}
-                    PreTag="div"
-                    {...props}
-                  >
-                    {String(children).replace(/\n$/, '')}
-                  </SyntaxHighlighter>
-                ) : (
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                );
-              }
-            }}
-          >
-            {segment.content}
-          </ReactMarkdown>
-        )
-      )}
-    </>
-  );
+  return <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{content}</div>;
 }
 
 function parseSkillSegments(content: string): MessageSegment[] {
@@ -978,10 +938,10 @@ export default Counter;
                 ) : (
                   <div className="message-content">
                     {message.content ? (
-                      <MessageContent content={message.content} isDarkMode={isDarkMode} />
-                    ) : (
-                      null
-                    )}
+                      <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                        {message.content.replace(/<skill\b[^>]*>[\s\S]*?<\/skill>/gi, '')}
+                      </div>
+                    ) : null}
                     <AssistantToolActivity activities={message.activities ?? []} />
                     <AssistantInputRequests requests={message.inputRequests ?? []} />
                     {message.status === "streaming" ? <ThinkingTitle /> : null}

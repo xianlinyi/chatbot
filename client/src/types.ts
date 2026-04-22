@@ -51,7 +51,19 @@ export type ActivityItem = {
   title: string;
   detail?: string;
   level?: "info" | "warning" | "error";
-  category?: "tool" | "permission" | "system" | "skill";
+  category?:
+    | "assistant"
+    | "command"
+    | "control"
+    | "external_tool"
+    | "permission"
+    | "plan"
+    | "session"
+    | "skill"
+    | "subagent"
+    | "system"
+    | "tool"
+    | "user_input";
   status?: "running" | "complete";
   key?: string;
   skills?: SkillSummary[];
