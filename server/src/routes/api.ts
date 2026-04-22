@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "../config/types.js";
 import type { AgentProvider, AgentStreamEvent } from "../providers/types.js";
@@ -59,12 +61,29 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
       created
     });
 
+    // Output to project root
+    const rootDir = process.cwd();
+    const outputFile = path.join(rootDir, "bot_output.log");
+    let botFullText = "";
+
     for await (const event of stream) {
       if (reply.raw.destroyed) {
         break;
       }
 
+      if (event.type === "delta" && event.content) {
+         botFullText += event.content;
+      }
+
+      // Log exactly what the bot returns to the file
+      fs.appendFileSync(outputFile, JSON.stringify(event) + "\n", "utf8");
+
       writeSse(reply.raw, event);
+    }
+    
+    if (botFullText.trim()) {
+       // Also save just the pure text to a markdown file
+       fs.appendFileSync(path.join(rootDir, "bot_response_text.md"), botFullText + "\n\n---\n\n", "utf8");
     }
 
     reply.raw.end();
