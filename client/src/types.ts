@@ -51,6 +51,22 @@ export type ActivityItem = {
   title: string;
   detail?: string;
   level?: "info" | "warning" | "error";
+  category?: "tool" | "permission" | "system" | "skill";
+  status?: "running" | "complete";
+  key?: string;
+  skills?: SkillSummary[];
+};
+
+export type SkillSummary = {
+  name: string;
+  description?: string;
+  path?: string;
+  source?: string;
+  pluginName?: string;
+  pluginVersion?: string;
+  allowedTools?: string[];
+  enabled?: boolean;
+  userInvocable?: boolean;
 };
 
 export type InputRequest = {
@@ -78,9 +94,10 @@ export type StreamEvent =
     }
   | {
       type: "activity";
-      title: string;
-      detail?: string;
-      level?: "info" | "warning" | "error";
+      event: {
+        type?: string;
+        data?: Record<string, unknown>;
+      };
     }
   | {
       type: "input_request";

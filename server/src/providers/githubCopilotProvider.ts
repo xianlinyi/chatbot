@@ -1,6 +1,13 @@
 import { nanoid } from "nanoid";
 import type { AppConfig } from "../config/types.js";
 import type { AgentInfo, AgentProvider, AgentSession, AgentStreamEvent } from "./types.js";
+import {
+  extractAssistantDelta,
+  extractAssistantMessageContent,
+  isCopilotToolEvent,
+  parseCopilotActivity,
+  type CopilotEvent
+} from "./copilotResponseParser.js";
 
 type CopilotSession = {
   on: {
@@ -16,15 +23,6 @@ type CopilotClientLike = {
   listModels: () => Promise<Array<{ id?: string }>>;
   createSession: (config: Record<string, unknown>) => Promise<CopilotSession>;
   stop: () => Promise<void>;
-};
-
-type CopilotEvent = {
-  type?: string;
-  data?: Record<string, unknown> & {
-    deltaContent?: string;
-    content?: string;
-    message?: string;
-  };
 };
 
 type UserInputRequest = {
@@ -143,35 +141,39 @@ export class GithubCopilotAgentProvider implements AgentProvider {
     this.activeRuns.set(sessionId, { queue, stats: runStats });
     const unsubscribeEvents = session.on((event) => {
       if (event.type === "assistant.message") {
-        const content = event.data?.content ?? "";
+        const content = extractAssistantMessageContent(event);
         runStats.assistantText += content;
         this.log("Received assistant message", {
           sessionId,
           contentLength: content.length
         });
-        return;
-      }
-
-      if (event.type?.startsWith("tool.")) {
-        runStats.toolEventCount += 1;
-        this.log("Received tool event", {
-          sessionId,
-          eventType: event.type
-        });
-        const activity = this.formatActivity(event);
+        const activity = parseCopilotActivity(event);
         if (activity) {
           queue.push(activity);
         }
         return;
       }
 
-      const activity = this.formatActivity(event);
+      if (isCopilotToolEvent(event)) {
+        runStats.toolEventCount += 1;
+        this.log("Received tool event", {
+          sessionId,
+          eventType: event.type
+        });
+        const activity = parseCopilotActivity(event);
+        if (activity) {
+          queue.push(activity);
+        }
+        return;
+      }
+
+      const activity = parseCopilotActivity(event);
       if (activity) {
         queue.push(activity);
       }
     });
     const unsubscribeDelta = session.on("assistant.message_delta", (event) => {
-      const content = event.data?.deltaContent ?? event.data?.content ?? "";
+      const content = extractAssistantDelta(event);
       if (content) {
         runStats.assistantText += content;
         this.log("Received assistant delta", {
@@ -361,73 +363,6 @@ export class GithubCopilotAgentProvider implements AgentProvider {
     });
   }
 
-  private formatActivity(event: CopilotEvent): AgentStreamEvent | undefined {
-    switch (event.type) {
-      case "session.info":
-        return { type: "activity", title: "Info", detail: stringValue(event.data?.message), level: "info" };
-      case "session.warning":
-        return { type: "activity", title: "Warning", detail: stringValue(event.data?.message), level: "warning" };
-      case "tool.user_requested":
-        return {
-          type: "activity",
-          title: `Tool requested: ${stringValue(event.data?.toolName) ?? "unknown"}`,
-          detail: stringValue(event.data?.arguments),
-          level: "info"
-        };
-      case "tool.execution_start":
-        return {
-          type: "activity",
-          title: `Running tool: ${stringValue(event.data?.toolName) ?? "unknown"}`,
-          detail: stringValue(event.data?.arguments),
-          level: "info"
-        };
-      case "tool.execution_progress":
-        return {
-          type: "activity",
-          title: "Tool progress",
-          detail: stringValue(event.data?.progressMessage),
-          level: "info"
-        };
-      case "tool.execution_complete": {
-        const success = event.data?.success;
-        return {
-          type: "activity",
-          title: `${success === false ? "Tool failed" : "Tool completed"}: ${stringValue(event.data?.toolName) ?? "tool"}`,
-          detail: stringValue(event.data?.error) ?? stringValue(event.data?.result),
-          level: success === false ? "error" : "info"
-        };
-      }
-      case "assistant.reasoning":
-      case "assistant.reasoning_delta":
-        return {
-          type: "activity",
-          title: "Reasoning",
-          detail: stringValue(event.data?.content ?? event.data?.deltaContent),
-          level: "info"
-        };
-      case "assistant.usage":
-        return {
-          type: "activity",
-          title: `Model usage: ${stringValue(event.data?.model) ?? "model"}`,
-          detail: compactJson({
-            inputTokens: event.data?.inputTokens,
-            outputTokens: event.data?.outputTokens,
-            duration: event.data?.duration
-          }),
-          level: "info"
-        };
-      case "session.task_complete":
-        return {
-          type: "activity",
-          title: "Task complete",
-          detail: stringValue(event.data?.message),
-          level: "info"
-        };
-      default:
-        return undefined;
-    }
-  }
-
   private log(message: string, details?: Record<string, unknown>): void {
     console.info("[github-copilot-provider]", message, details ?? {});
   }
@@ -477,26 +412,4 @@ function createAsyncQueue<T>(): AsyncIterable<T> & { push: (item: T) => void; en
       };
     }
   };
-}
-
-function stringValue(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function compactJson(value: Record<string, unknown>): string {
-  return JSON.stringify(
-    Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== null))
-  );
 }

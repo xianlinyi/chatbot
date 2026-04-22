@@ -7,9 +7,16 @@ const encoder = new TextEncoder();
 
 describe("App", () => {
   beforeEach(() => {
-    vi.stubGlobal("crypto", {
-      randomUUID: vi.fn(() => `id-${Math.random()}`)
-    });
+    const cryptoLike = {
+      randomUUID: vi.fn(function randomUUID(this: unknown) {
+        if (this !== cryptoLike) {
+          throw new TypeError("Illegal invocation");
+        }
+
+        return `id-${Math.random()}`;
+      })
+    };
+    vi.stubGlobal("crypto", cryptoLike);
   });
 
   afterEach(() => {
@@ -18,6 +25,7 @@ describe("App", () => {
   });
 
   it("creates a fresh session on load and streams a response", async () => {
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
@@ -43,17 +51,23 @@ describe("App", () => {
         return new Response(
           new ReadableStream({
             start(controller) {
+              streamController = controller;
               controller.enqueue(
                 encoder.encode('event: session\ndata: {"type":"session","sessionId":"session-1","created":true}\n\n')
               );
               controller.enqueue(
                 encoder.encode(
-                  'event: activity\ndata: {"type":"activity","title":"Model usage: test-model","detail":"{\\"inputTokens\\":10,\\"outputTokens\\":4,\\"duration\\":1200}","level":"info"}\n\n'
+                  'event: activity\ndata: {"type":"activity","event":{"type":"assistant.usage","data":{"model":"test-model","inputTokens":10,"outputTokens":4,"duration":1200}}}\n\n'
                 )
               );
               controller.enqueue(
                 encoder.encode(
-                  'event: activity\ndata: {"type":"activity","title":"Running tool: bash","detail":"{\\"command\\":\\"git status --short\\"}","level":"info"}\n\n'
+                  'event: activity\ndata: {"type":"activity","event":{"type":"tool.execution_start","data":{"toolCallId":"tool-1","toolName":"bash","arguments":{"command":"git status --short"}}}}\n\n'
+                )
+              );
+              controller.enqueue(
+                encoder.encode(
+                  'event: activity\ndata: {"type":"activity","event":{"type":"skill.invoked","data":{"name":"imagegen","description":"Generate images","path":"/skills/imagegen/SKILL.md","content":"secret skill body"}}}\n\n'
                 )
               );
               controller.enqueue(
@@ -61,9 +75,11 @@ describe("App", () => {
                   'event: input_request\ndata: {"type":"input_request","requestId":"request-1","question":"选择提交类型？","choices":["feat","fix"],"allowFreeform":true}\n\n'
                 )
               );
-              controller.enqueue(encoder.encode('event: delta\ndata: {"type":"delta","content":"hello"}\n\n'));
-              controller.enqueue(encoder.encode('event: done\ndata: {"type":"done"}\n\n'));
-              controller.close();
+              controller.enqueue(
+                encoder.encode(
+                  'event: delta\ndata: {"type":"delta","content":"hello <skill><name>commit</name><description>Commit changes</description><content>hidden skill markdown</content></skill>"}\n\n'
+                )
+              );
             }
           }),
           {
@@ -86,8 +102,20 @@ describe("App", () => {
 
     expect(await screen.findByText("Hi")).toBeInTheDocument();
     expect(await screen.findByText("hello")).toBeInTheDocument();
-    expect(await screen.findByText("正在运行工具")).toBeInTheDocument();
-    expect(await screen.findByText('{"command":"git status --short"}')).toBeInTheDocument();
+    expect(await screen.findByText("commit")).toBeInTheDocument();
+    expect(await screen.findByText("imagegen")).toBeInTheDocument();
+    expect(screen.queryByText(/hidden skill markdown/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/secret skill body/)).not.toBeInTheDocument();
+    expect(await screen.findByText("正在调用工具 · bash")).toBeInTheDocument();
+    expect(await screen.findByText(/git status --short/)).toBeInTheDocument();
+    streamController?.enqueue(
+      encoder.encode(
+        'event: activity\ndata: {"type":"activity","event":{"type":"tool.execution_complete","data":{"toolCallId":"tool-1","toolName":"bash","success":true}}}\n\n'
+      )
+    );
+    await waitFor(() => expect(screen.queryByText("正在调用工具 · bash")).not.toBeInTheDocument());
+    streamController?.enqueue(encoder.encode('event: done\ndata: {"type":"done"}\n\n'));
+    streamController?.close();
     expect(await screen.findByText("问题")).toBeInTheDocument();
     expect(await screen.findByText("选择提交类型？")).toBeInTheDocument();
     expect(await screen.findByText("选项")).toBeInTheDocument();

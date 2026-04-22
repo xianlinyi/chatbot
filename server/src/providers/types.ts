@@ -36,7 +36,13 @@ export type AgentSession = {
 export type AgentStreamEvent =
   | { type: "session"; sessionId: string; created: boolean }
   | { type: "delta"; content: string }
-  | { type: "activity"; title: string; detail?: string; level?: "info" | "warning" | "error" }
+  | {
+      type: "activity";
+      event: {
+        type?: string;
+        data?: Record<string, unknown>;
+      };
+    }
   | {
       type: "input_request";
       requestId: string;

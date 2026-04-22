@@ -110,7 +110,7 @@ textarea {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--brand-color);
+  background: var(--text-color);
   border-radius: 24px;
   display: flex;
   align-items: center;
@@ -122,7 +122,7 @@ textarea {
 
 .theme-toggle-switch .slider-icon {
   display: flex;
-  color: white;
+  color: var(--bg-color);
   z-index: 1;
 }
 
@@ -137,7 +137,7 @@ textarea {
   width: 18px;
   left: 3px;
   bottom: 3px;
-  background-color: white;
+  background-color: var(--bg-color);
   border-radius: 50%;
   transition: .4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
   z-index: 2;
@@ -300,25 +300,22 @@ html.dark .user-message-card.overflowing.collapsed .user-message-clip::after {
   margin: 0 14px 14px auto;
   padding: 8px 14px;
   border: none;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #c2410c;
+  border-radius: 9999px;
+  background: var(--text-color);
+  color: var(--bg-color);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
-  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.08);
-  transition: transform 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
-html.dark .user-message-toggle {
-  background: rgba(31, 31, 31, 0.9);
-  color: #fdba74;
-}
 
 .user-message-toggle:hover {
+  opacity: 0.85;
   transform: translateY(-1px);
-  box-shadow: 0 12px 22px rgba(0, 0, 0, 0.12);
+  box-shadow: none;
 }
 
 .message-inner {
@@ -495,33 +492,64 @@ html.dark .user-message-toggle {
 .tool-activity {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin: 18px 0;
-}
-
-.tool-title {
-  margin-bottom: 0;
+  gap: 8px;
+  margin: 10px 0 2px;
 }
 
 .tool-event {
-  border-left: 2px solid rgba(249, 115, 22, 0.42);
-  padding-left: 12px;
+  max-width: min(680px, 100%);
+  padding: 10px 12px;
+  border: 1px solid rgba(249, 115, 22, 0.18);
+  border-radius: 8px;
+  background: rgba(249, 115, 22, 0.045);
 }
 
 .tool-event.error {
-  border-left-color: rgba(220, 38, 38, 0.6);
+  border-color: rgba(220, 38, 38, 0.28);
+  background: rgba(220, 38, 38, 0.055);
 }
 
 .tool-event-title {
-  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 18px;
+  margin-bottom: 8px;
   color: var(--text-color);
   font-size: 12px;
   font-weight: 700;
-  opacity: 0.6;
+  opacity: 0.72;
+}
+
+.tool-event-dots {
+  transform: scale(0.72);
+  transform-origin: left center;
 }
 
 .tool-event pre {
   margin: 0;
+  max-height: 148px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: 7px;
+  scrollbar-width: thin;
+}
+
+.tool-event pre code {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skill-activity-group {
+  max-width: min(680px, 100%);
+}
+
+.skill-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 .input-request-list {
@@ -830,34 +858,30 @@ html.dark .composer-hints {
   width: 56px;
   height: 28px;
   border: none;
-  border-radius: 14px;
-  color: #334155;
-  background: rgba(255, 255, 255, 0.72);
+  border-radius: 9999px;
+  color: var(--bg-color);
+  background: var(--text-color);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
-  box-shadow:
-    0 6px 18px rgba(0, 0, 0, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(14px) saturate(1.4);
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: none;
 }
 
 .send-button:hover {
-  color: #0f172a;
-  background: rgba(255, 255, 255, 0.88);
+  color: var(--bg-color);
+  background: var(--text-color);
+  opacity: 0.85;
   transform: translateY(-1px) scale(1.05);
-  box-shadow:
-    0 10px 26px rgba(0, 0, 0, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  box-shadow: none;
 }
 
 .send-button:active {
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--text-color);
+  opacity: 0.7;
   transform: translateY(1px) scale(0.95);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  box-shadow: none;
 }
 
 .send-button svg {
@@ -877,4 +901,109 @@ html.dark .composer-hints {
 }
 
 @media (max-width: 640px) {
+}
+
+.skill-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: min(360px, 100%);
+  margin: 2px 4px 2px 0;
+  padding: 3px 8px;
+  border: 1px solid rgba(249, 115, 22, 0.24);
+  border-radius: 999px;
+  background-color: var(--message-bg-sys);
+  color: var(--brand-color);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  vertical-align: middle;
+  user-select: none;
+}
+
+.skill-pill-label {
+  color: var(--text-color);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  opacity: 0.58;
+  text-transform: uppercase;
+}
+
+.skill-pill-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breathing-light {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-interactive);
+  margin-right: 8px;
+  animation: breathe 2s ease-in-out forwards;
+  opacity: 0;
+}
+
+@keyframes breathe {
+  0% {
+    opacity: 0;
+    box-shadow: 0 0 0px var(--color-interactive);
+  }
+  30% {
+    opacity: 1;
+    box-shadow: 0 0 8px var(--color-interactive);
+  }
+  70% {
+    opacity: 1;
+    box-shadow: 0 0 12px var(--color-interactive);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: 0 0 0px var(--color-interactive);
+  }
+}
+
+.black-white-pill-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-pill.black-white-skill {
+  background-color: #000;
+  color: #fff;
+  border: 1px solid #333;
+}
+.skill-pill.black-white-skill .skill-pill-label {
+  background-color: #333;
+  color: #ccc;
+  border-right: 1px solid #555;
+}
+
+.breathing-light.green-light {
+  background-color: #00ff00;
+  animation: breathe-green 2s ease-in-out forwards;
+}
+
+@keyframes breathe-green {
+  0% {
+    opacity: 0;
+    box-shadow: 0 0 0px #00ff00;
+  }
+  30% {
+    opacity: 1;
+    box-shadow: 0 0 8px #00ff00;
+  }
+  70% {
+    opacity: 1;
+    box-shadow: 0 0 12px #00ff00;
+  }
+  100% {
+    opacity: 0;
+    box-shadow: 0 0 0px #00ff00;
+  }
 }

@@ -1,11 +1,19 @@
+import { SkillPill, SkillActivityCard } from './components/SkillActivityCard.js';
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from "remark-gfm";
 import * as THREE from "three";
 import { answerUserInput, fetchAgentInfo, sendMessage } from "./api.js";
-import type { ActivityItem, AgentInfoResponse, ChatMessage, InputRequest, StreamEvent, UsageStats } from "./types.js";
+import { completedActivityKey, formatActivityItem, parseUsageEvent } from "./agentEventPresenter.js";
+import type { ActivityItem, AgentInfoResponse, ChatMessage, InputRequest, SkillSummary, StreamEvent, UsageStats } from "./types.js";
 
 const USER_MESSAGE_COLLAPSED_HEIGHT = 168;
+
+function createRandomId() {
+  return crypto.randomUUID();
+}
 
 function areBooleanRecordsEqual(left: Record<string, boolean>, right: Record<string, boolean>) {
   const leftKeys = Object.keys(left);
@@ -289,6 +297,120 @@ function LiquidGlassSurface({
   return <canvas aria-hidden="true" className="liquid-glass-canvas" ref={canvasRef} />;
 }
 
+
+type MessageSegment =
+  | { type: "markdown"; content: string }
+  | { type: "skill"; skill: SkillSummary };
+
+function MessageContent({ content, isDarkMode }: { content: string; isDarkMode: boolean }) {
+  const segments = parseSkillSegments(content);
+
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.type === "skill" ? (
+          <SkillPill key={`skill-${index}-${segment.skill.name}`} skill={segment.skill} />
+        ) : (
+          <ReactMarkdown
+            key={`markdown-${index}`}
+            remarkPlugins={[remarkGfm]}
+            components={{
+              code({node, inline, className, children, ...props}) {
+                const match = /language-(\w+)/.exec(className || '');
+                return !inline && match ? (
+                  <SyntaxHighlighter
+                    style={isDarkMode ? vscDarkPlus : vs}
+                    language={match[1]}
+                    PreTag="div"
+                    {...props}
+                  >
+                    {String(children).replace(/\n$/, '')}
+                  </SyntaxHighlighter>
+                ) : (
+                  <code className={className} {...props}>
+                    {children}
+                  </code>
+                );
+              }
+            }}
+          >
+            {segment.content}
+          </ReactMarkdown>
+        )
+      )}
+    </>
+  );
+}
+
+function parseSkillSegments(content: string): MessageSegment[] {
+  if (!content) {
+    return [];
+  }
+
+  const segments: MessageSegment[] = [];
+  const skillPattern = /<skill\b[^>]*>[\s\S]*?<\/skill>/gi;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = skillPattern.exec(content))) {
+    if (match.index > cursor) {
+      const markdown = content.slice(cursor, match.index);
+      if (markdown.trim()) {
+        segments.push({ type: "markdown", content: markdown });
+      }
+    }
+
+    segments.push({ type: "skill", skill: skillSummaryFromSkillXml(match[0]) });
+    cursor = match.index + match[0].length;
+  }
+
+  const rest = content.slice(cursor);
+  if (rest.trim()) {
+    segments.push({ type: "markdown", content: rest });
+  }
+
+  return segments;
+}
+
+function skillSummaryFromSkillXml(xml: string): SkillSummary {
+  return {
+    name: xmlTagValue(xml, "name") ?? xmlAttributeValue(xml, "name") ?? "Skill",
+    description: xmlTagValue(xml, "description") ?? xmlTagValue(xml, "desc"),
+    path: xmlTagValue(xml, "path"),
+    source: xmlTagValue(xml, "source"),
+    pluginName: xmlTagValue(xml, "pluginName") ?? xmlTagValue(xml, "plugin"),
+    pluginVersion: xmlTagValue(xml, "pluginVersion")
+  };
+}
+
+function xmlTagValue(xml: string, tagName: string): string | undefined {
+  const match = new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "i").exec(xml);
+  return cleanXmlValue(match?.[1]);
+}
+
+function xmlAttributeValue(xml: string, attributeName: string): string | undefined {
+  const match = new RegExp(`<skill\\b[^>]*\\s${attributeName}=(["'])(.*?)\\1`, "i").exec(xml);
+  return cleanXmlValue(match?.[2]);
+}
+
+function cleanXmlValue(value: string | undefined): string | undefined {
+  const cleaned = value
+    ?.replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) {
+    return undefined;
+  }
+
+  return cleaned
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
 export function App() {
   const [agentInfo, setAgentInfo] = useState<AgentInfoResponse | undefined>();
   const [sessionId, setSessionId] = useState<string | undefined>();
@@ -386,6 +508,7 @@ export default Counter;
   const [shortcutHint, setShortcutHint] = useState("Ctrl + /");
   const [caretState, setCaretState] = useState({ left: 8, top: 8, height: 24, visible: false });
   const [expandedUserMessages, setExpandedUserMessages] = useState<Record<string, boolean>>({});
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [overflowingUserMessages, setOverflowingUserMessages] = useState<Record<string, boolean>>({});
   const [sessionUsage, setSessionUsage] = useState<UsageStats>({ inputTokens: 0, outputTokens: 0, duration: 0 });
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -651,7 +774,9 @@ export default Counter;
 
         if (event.type === "done") {
           setMessages((current) =>
-            current.map((message) => (message.id === assistantId ? { ...message, status: "done" } : message))
+            current.map((message) =>
+              message.id === assistantId ? { ...message, status: "done", activities: message.activities?.filter(a => a.category === "skill") ?? [] } : message
+            )
           );
         }
       }
@@ -688,24 +813,47 @@ export default Counter;
       return;
     }
 
-    if (!isToolActivity(event)) {
+    const completedKey = completedActivityKey(event);
+    if (completedKey) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                activities: (message.activities ?? []).filter((activity) => activity.key !== completedKey)
+              }
+            : message
+        )
+      );
       return;
     }
 
-    const activity: ActivityItem = {
-      id: crypto.randomUUID(),
-      title: event.title,
-      detail: event.detail,
-      level: event.level
-    };
+    const activity = formatActivityItem(event, createRandomId);
+    if (!activity) {
+      return;
+    }
 
     setMessages((current) =>
       current.map((message) =>
-        message.id === assistantId
-          ? { ...message, activities: [...(message.activities ?? []), activity] }
-          : message
+        message.id === assistantId ? { ...message, activities: upsertActivity(message.activities, activity) } : message
       )
     );
+  }
+
+  function upsertActivity(current: ActivityItem[] | undefined, next: ActivityItem): ActivityItem[] {
+    if (!next.key) {
+      return next.category === "tool" || next.category === "skill" || next.level !== "info"
+        ? [...(current ?? []), next]
+        : current ?? [];
+    }
+
+    const activities = current ?? [];
+    const existingIndex = activities.findIndex((activity) => activity.key === next.key);
+    if (existingIndex === -1) {
+      return [...activities, next];
+    }
+
+    return activities.map((activity, index) => (index === existingIndex ? { ...activity, ...next } : activity));
   }
 
   function appendInputRequest(assistantId: string, request: InputRequest) {
@@ -718,8 +866,11 @@ export default Counter;
     );
   }
 
-  const handleCopy = (content: string) => {
-    navigator.clipboard.writeText(content).catch(() => {});
+  const handleCopy = (content: string, messageId: string) => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopiedMessageId(messageId);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    }).catch(() => {});
   };
 
   const toggleUserMessageExpansion = (messageId: string) => {
@@ -811,9 +962,7 @@ export default Counter;
                           userMessageBodyRefs.current[message.id] = element;
                         }}
                       >
-                        {message.content ? (
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-                        ) : null}
+                        {message.content ? <MessageContent content={message.content} isDarkMode={isDarkMode} /> : null}
                       </div>
                     </div>
                     {overflowingUserMessages[message.id] ? (
@@ -828,14 +977,14 @@ export default Counter;
                   </div>
                 ) : (
                   <div className="message-content">
-                    {message.status === "streaming" ? <ThinkingTitle /> : null}
                     {message.content ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                      <MessageContent content={message.content} isDarkMode={isDarkMode} />
                     ) : (
                       null
                     )}
                     <AssistantToolActivity activities={message.activities ?? []} />
                     <AssistantInputRequests requests={message.inputRequests ?? []} />
+                    {message.status === "streaming" ? <ThinkingTitle /> : null}
                     {message.status !== "streaming" && message.usage ? (
                       <div className="message-usage">{formatUsage(message.usage)}</div>
                     ) : null}
@@ -844,11 +993,11 @@ export default Counter;
                 {message.content && (
                   <button 
                     className="copy-button" 
-                    onClick={() => handleCopy(message.content)}
-                    aria-label="Copy message"
-                    title="Copy"
+                    onClick={() => handleCopy(message.content, message.id)}
+                    aria-label={copiedMessageId === message.id ? "Copied!" : "Copy message"}
+                    title={copiedMessageId === message.id ? "已复制" : "复制"}
                   >
-                    <CopyIcon />
+                    {copiedMessageId === message.id ? <CheckIcon /> : <CopyIcon />}
                   </button>
                 )}
               </div>
@@ -956,21 +1105,19 @@ function AssistantToolActivity({ activities }: { activities: ActivityItem[] }) {
   }
 
   return (
-    <section className="tool-activity" aria-label="正在运行工具">
-      <div className="thinking-title tool-title">
-        <span>正在运行工具</span>
-        <span className="thinking-dots" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </span>
-      </div>
-      {activities.map((activity) => (
-        <div className={`tool-event ${activity.level ?? "info"}`} key={activity.id}>
-          <div className="tool-event-title">{activity.title}</div>
-          {activity.detail ? <pre><code>{activity.detail}</code></pre> : null}
-        </div>
-      ))}
+    <section className="tool-activity" aria-label="Agent activity">
+      {activities.map((activity) =>
+        activity.category === "skill" && activity.skills?.length ? (
+          <SkillActivityCard key={activity.id} activity={activity} />
+        ) : (
+          <div className={`tool-event ${activity.level ?? "info"}`} key={activity.id}>
+            <div className="tool-event-title">
+              <span>{activity.title}</span>
+            </div>
+            {activity.detail ? <pre><code>{activity.detail}</code></pre> : null}
+          </div>
+        )
+      )}
     </section>
   );
 }
@@ -1002,31 +1149,6 @@ function AssistantInputRequests({ requests }: { requests: InputRequest[] }) {
       ))}
     </div>
   );
-}
-
-function isToolActivity(event: Extract<StreamEvent, { type: "activity" }>): boolean {
-  return /^Tool |^Running tool:|^Tool completed:|^Tool failed:|^Tool requested:|^Tool progress$/i.test(event.title);
-}
-
-function parseUsageEvent(event: Extract<StreamEvent, { type: "activity" }>): UsageStats | undefined {
-  if (!event.title.startsWith("Model usage:") || !event.detail) {
-    return undefined;
-  }
-
-  try {
-    const payload = JSON.parse(event.detail) as Partial<UsageStats>;
-    return {
-      inputTokens: numericValue(payload.inputTokens),
-      outputTokens: numericValue(payload.outputTokens),
-      duration: numericValue(payload.duration)
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-function numericValue(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function addUsage(current: UsageStats | undefined, next: UsageStats): UsageStats {
@@ -1101,6 +1223,14 @@ function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M3.4 20.4 21 12 3.4 3.6 5 10.5l8.5 1.5L5 13.5l-1.6 6.9z" />
+    </svg>
+  );
+}
+
+export function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12"></polyline>
     </svg>
   );
 }
