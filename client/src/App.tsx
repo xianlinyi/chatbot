@@ -148,6 +148,9 @@ function LiquidGlassSurface({
           // 用户希望能有一致的透明颜色，移除原来的彩虹色散与焦点高亮
           vec3 baseColor = vec3(1.0);
           float alpha = 0.05 * edgeMask; // 极致微弱甚至能被忽略的一致透明抛光涂层
+          if (uDark > 0.5) {
+            alpha = 0.0; // 黑夜模式下彻底去除泛白涂层
+          }
           
           gl_FragColor = vec4(baseColor, alpha);
         }

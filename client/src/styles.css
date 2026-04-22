@@ -647,7 +647,7 @@ html.dark .input-request-choice {
 
 html.dark .composer {
   background: transparent;
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: transparent;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }
 
@@ -657,7 +657,7 @@ html.dark .composer {
 }
 
 html.dark .composer.focused {
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: transparent;
 }
 
 .liquid-glass-canvas {
