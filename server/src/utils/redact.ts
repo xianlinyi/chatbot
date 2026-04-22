@@ -22,5 +22,5 @@ function redact(value: unknown): unknown {
 }
 
 function shouldRedactString(key: string, value: unknown): boolean {
-  return typeof value === "string" && secretKeyPattern.test(key) && !/env$/i.test(key);
+  return typeof value === "string" && key !== "tokenType" && secretKeyPattern.test(key) && !/env$/i.test(key);
 }

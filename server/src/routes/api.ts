@@ -69,6 +69,29 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
 
     reply.raw.end();
   });
+
+  app.post<{ Body: { sessionId?: unknown; requestId?: unknown; answer?: unknown } }>(
+    "/api/user-input",
+    async (request, reply) => {
+      const { sessionId, requestId, answer } = request.body ?? {};
+      if (typeof sessionId !== "string" || !sessionId.trim()) {
+        return reply.code(400).send({ error: "sessionId is required." });
+      }
+      if (typeof requestId !== "string" || !requestId.trim()) {
+        return reply.code(400).send({ error: "requestId is required." });
+      }
+      if (typeof answer !== "string" || !answer.trim()) {
+        return reply.code(400).send({ error: "answer must be a non-empty string." });
+      }
+
+      const accepted = await options.sessions.respondToUserInput(sessionId, requestId, answer.trim());
+      if (!accepted) {
+        return reply.code(404).send({ error: "Unknown or expired input request." });
+      }
+
+      return { ok: true };
+    }
+  );
 }
 
 function writeSse(response: NodeJS.WritableStream, event: AgentStreamEvent): void {

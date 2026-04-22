@@ -27,7 +27,7 @@ describe("App", () => {
           agent: {
             provider: "github-copilot",
             model: "test-model",
-            auth: { mode: "github-token", githubTokenEnv: "GITHUB_TOKEN", hasGithubToken: true },
+            auth: { mode: "token", tokenType: "fine-grained-pat", hasToken: true },
             instructions: "Test instructions",
             customAgents: [],
             skillDirectories: [],
@@ -45,6 +45,21 @@ describe("App", () => {
             start(controller) {
               controller.enqueue(
                 encoder.encode('event: session\ndata: {"type":"session","sessionId":"session-1","created":true}\n\n')
+              );
+              controller.enqueue(
+                encoder.encode(
+                  'event: activity\ndata: {"type":"activity","title":"Model usage: test-model","detail":"{\\"inputTokens\\":10,\\"outputTokens\\":4,\\"duration\\":1200}","level":"info"}\n\n'
+                )
+              );
+              controller.enqueue(
+                encoder.encode(
+                  'event: activity\ndata: {"type":"activity","title":"Running tool: bash","detail":"{\\"command\\":\\"git status --short\\"}","level":"info"}\n\n'
+                )
+              );
+              controller.enqueue(
+                encoder.encode(
+                  'event: input_request\ndata: {"type":"input_request","requestId":"request-1","question":"选择提交类型？","choices":["feat","fix"],"allowFreeform":true}\n\n'
+                )
               );
               controller.enqueue(encoder.encode('event: delta\ndata: {"type":"delta","content":"hello"}\n\n'));
               controller.enqueue(encoder.encode('event: done\ndata: {"type":"done"}\n\n'));
@@ -64,13 +79,22 @@ describe("App", () => {
 
     render(<App />);
 
-  expect(await screen.findByText("James.bot")).toBeInTheDocument();
+    expect(await screen.findByText("github-copilot · test-model · token")).toBeInTheDocument();
     const input = screen.getByLabelText("Message");
     await userEvent.type(input, "Hi");
     await userEvent.keyboard("{Enter}");
 
     expect(await screen.findByText("Hi")).toBeInTheDocument();
     expect(await screen.findByText("hello")).toBeInTheDocument();
+    expect(await screen.findByText("正在运行工具")).toBeInTheDocument();
+    expect(await screen.findByText('{"command":"git status --short"}')).toBeInTheDocument();
+    expect(await screen.findByText("问题")).toBeInTheDocument();
+    expect(await screen.findByText("选择提交类型？")).toBeInTheDocument();
+    expect(await screen.findByText("选项")).toBeInTheDocument();
+    expect(await screen.findByText("feat")).toBeInTheDocument();
+    expect(screen.queryByText(/Model usage/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/本轮总计 14 tokens/)).toBeInTheDocument();
+    expect(await screen.findByText(/Session 累计 14 tokens/)).toBeInTheDocument();
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/messages",

@@ -6,6 +6,7 @@ describe("redactSecrets", () => {
     expect(
       redactSecrets({
         token: "abc",
+        tokenType: "fine-grained-pat",
         nested: {
           Authorization: "Bearer abc",
           safe: "visible"
@@ -14,6 +15,7 @@ describe("redactSecrets", () => {
       })
     ).toEqual({
       token: "[REDACTED]",
+      tokenType: "fine-grained-pat",
       nested: {
         Authorization: "[REDACTED]",
         safe: "visible"

@@ -1,6 +1,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { AppConfig } from "./types.js";
+import type { AppConfig, CopilotTokenType } from "./types.js";
+
+const supportedTokenTypes = new Set<CopilotTokenType>([
+  "fine-grained-pat",
+  "copilot-cli-oauth",
+  "github-cli-oauth"
+]);
 
 const defaultConfig: AppConfig = {
   server: {
@@ -15,11 +21,11 @@ const defaultConfig: AppConfig = {
     name: "github-copilot",
     model: "gpt-4.1",
     auth: {
-      githubTokenEnv: "GITHUB_TOKEN",
+      tokenType: "fine-grained-pat",
       useLoggedInUser: false
     },
     instructions:
-      "You are a helpful local coding agent exposed through a lightweight web chat. Be concise, practical, and explicit about actions you can or cannot take.",
+      "You are a local coding agent exposed through a lightweight web chat. When the user asks you to perform an engineering task, keep working through the concrete steps until the task is completed or a real blocker is reached. Do not stop after saying you will do something. Use available tools, report concise progress, and ask for confirmation only when it is required to avoid an unsafe or ambiguous action.",
     customAgents: [],
     skillDirectories: [],
     disabledSkills: [],
@@ -39,6 +45,7 @@ type PartialConfig = Partial<AppConfig> & {
 export async function loadConfig(cwd = process.cwd()): Promise<AppConfig> {
   const fileConfig = await readConfigFile(cwd);
   const merged = mergeConfig(defaultConfig, fileConfig);
+  validateAuthConfig(merged.provider.auth);
 
   const providerName = process.env.AGENT_PROVIDER ?? merged.provider.name;
   if (providerName !== "github-copilot") {
@@ -58,11 +65,7 @@ export async function loadConfig(cwd = process.cwd()): Promise<AppConfig> {
       model: process.env.COPILOT_MODEL ?? merged.provider.model,
       auth: {
         ...merged.provider.auth,
-        githubToken:
-          process.env.COPILOT_GITHUB_TOKEN ??
-          process.env.GITHUB_TOKEN ??
-          process.env.GH_TOKEN ??
-          resolveConfiguredToken(merged.provider.auth)
+        token: resolveConfiguredToken(merged.provider.auth)
       }
     }
   };
@@ -116,14 +119,23 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
 
+function validateAuthConfig(auth: AppConfig["provider"]["auth"]): void {
+  if (auth.tokenType && !supportedTokenTypes.has(auth.tokenType)) {
+    throw new Error(
+      `Unsupported provider.auth.tokenType "${auth.tokenType}". Supported values: ${[...supportedTokenTypes].join(", ")}.`
+    );
+  }
+
+  const token = resolveConfiguredToken(auth);
+  if (!token && !auth.useLoggedInUser) {
+    throw new Error("provider.auth.token is required when provider.auth.useLoggedInUser is false.");
+  }
+
+  if (token?.startsWith("ghp_")) {
+    throw new Error("Classic GitHub personal access tokens (ghp_) are not supported by GitHub Copilot SDK auth.");
+  }
+}
+
 function resolveConfiguredToken(auth: AppConfig["provider"]["auth"]): string | undefined {
-  if (auth.githubToken) {
-    return auth.githubToken;
-  }
-
-  if (auth.githubTokenEnv) {
-    return process.env[auth.githubTokenEnv];
-  }
-
-  return undefined;
+  return auth.token?.trim() || auth.githubToken?.trim() || undefined;
 }

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { background: repeating-linear-gradient(45deg, #eee, #eee 10px, #ccc 10px, #ccc 20px); height: 100vh; margin: 0; display:flex; justify-content:center; align-items:center; font-family: sans-serif; }
+    .glass {
+      width: 300px; height: 100px;
+      backdrop-filter: url(#myfilter);
+      -webkit-backdrop-filter: url(#myfilter);
+      background: rgba(255,255,255,0.1);
+      border: 1px solid black;
+      font-size: 30px; font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Underneath</h1>
+  <div class="glass">Hello</div>
+
+  <svg>
+    <filter id="myfilter" color-interpolation-filters="sRGB">
+      <feImage href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='rgba(128,128,128,1)'/%3E%3C/svg%3E" result="img" />
+      <feDisplacementMap in="SourceGraphic" in2="img" scale="20" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </svg>
+</body>
+</html>

@@ -45,6 +45,15 @@ export class SessionManager {
     return this.provider.sendMessageStream(sessionId, prompt);
   }
 
+  async respondToUserInput(sessionId: string, requestId: string, answer: string): Promise<boolean> {
+    const session = this.get(sessionId);
+    if (!session) {
+      return false;
+    }
+
+    return this.provider.respondToUserInput(sessionId, requestId, answer);
+  }
+
   async delete(sessionId: string): Promise<boolean> {
     const existed = this.sessions.delete(sessionId);
     if (existed) {

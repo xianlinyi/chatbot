@@ -51,6 +51,21 @@ export async function* sendMessage(
   }
 }
 
+export async function answerUserInput(sessionId: string, requestId: string, answer: string): Promise<void> {
+  const response = await fetch("/api/user-input", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sessionId, requestId, answer })
+  });
+
+  if (!response.ok) {
+    const error = await safeError(response);
+    throw new Error(error);
+  }
+}
+
 async function safeError(response: Response): Promise<string> {
   try {
     const payload = (await response.json()) as { error?: string };

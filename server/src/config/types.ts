@@ -1,5 +1,7 @@
 export type PermissionMode = "allow-all";
 
+export type CopilotTokenType = "fine-grained-pat" | "copilot-cli-oauth" | "github-cli-oauth";
+
 export type McpServerConfig = {
   type?: "local" | "stdio" | "http" | "sse";
   command?: string;
@@ -35,8 +37,10 @@ export type AppConfig = {
     name: "github-copilot";
     model: string;
     auth: {
+      token?: string;
+      tokenType?: CopilotTokenType;
+      /** @deprecated Use token instead. */
       githubToken?: string;
-      githubTokenEnv?: string;
       useLoggedInUser: boolean;
     };
     instructions: string;

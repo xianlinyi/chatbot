@@ -8,8 +8,8 @@ export type AgentInfoResponse = {
     model: string;
     auth: {
       mode: string;
-      githubTokenEnv?: string;
-      hasGithubToken: boolean;
+      tokenType?: "fine-grained-pat" | "copilot-cli-oauth" | "github-cli-oauth";
+      hasToken: boolean;
     };
     instructions: string;
     customAgents: Array<{
@@ -40,6 +40,30 @@ export type ChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   status?: "streaming" | "done" | "error";
+  isNew?: boolean;
+  activities?: ActivityItem[];
+  inputRequests?: InputRequest[];
+  usage?: UsageStats;
+};
+
+export type ActivityItem = {
+  id: string;
+  title: string;
+  detail?: string;
+  level?: "info" | "warning" | "error";
+};
+
+export type InputRequest = {
+  requestId: string;
+  question: string;
+  choices?: string[];
+  allowFreeform: boolean;
+};
+
+export type UsageStats = {
+  inputTokens: number;
+  outputTokens: number;
+  duration: number;
 };
 
 export type StreamEvent =
@@ -51,6 +75,24 @@ export type StreamEvent =
   | {
       type: "delta";
       content: string;
+    }
+  | {
+      type: "activity";
+      title: string;
+      detail?: string;
+      level?: "info" | "warning" | "error";
+    }
+  | {
+      type: "input_request";
+      requestId: string;
+      question: string;
+      choices?: string[];
+      allowFreeform: boolean;
+    }
+  | {
+      type: "input_response";
+      requestId: string;
+      answer: string;
     }
   | {
       type: "done";

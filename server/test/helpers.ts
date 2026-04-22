@@ -14,8 +14,8 @@ export const testConfig: AppConfig = {
     name: "github-copilot",
     model: "test-model",
     auth: {
-      githubToken: "secret-token",
-      githubTokenEnv: "GITHUB_TOKEN",
+      token: "secret-token",
+      tokenType: "fine-grained-pat",
       useLoggedInUser: false
     },
     instructions: "Test instructions",
@@ -50,9 +50,9 @@ export class MockAgentProvider implements AgentProvider {
     provider: "github-copilot",
     model: "test-model",
     auth: {
-      mode: "github-token",
-      githubTokenEnv: "GITHUB_TOKEN",
-      hasGithubToken: true
+      mode: "token",
+      tokenType: "fine-grained-pat",
+      hasToken: true
     },
     instructions: "Test instructions",
     customAgents: testConfig.provider.customAgents,
@@ -81,6 +81,10 @@ export class MockAgentProvider implements AgentProvider {
     yield { type: "delta", content: "hel" };
     yield { type: "delta", content: "lo" };
     yield { type: "done" };
+  }
+
+  async respondToUserInput(sessionId: string, requestId: string, answer: string): Promise<boolean> {
+    return sessionId === "session-1" && requestId === "request-1" && Boolean(answer);
   }
 
   async closeSession(sessionId: string): Promise<void> {

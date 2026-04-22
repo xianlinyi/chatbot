@@ -40,9 +40,30 @@ describe("API routes", () => {
     const body = response.json();
 
     expect(body.agent.instructions).toBe("Test instructions");
-    expect(body.agent.auth.hasGithubToken).toBe(true);
+    expect(body.agent.auth.hasToken).toBe(true);
+    expect(body.agent.auth.tokenType).toBe("fine-grained-pat");
     expect(body.agent.skillDirectories).toEqual(["./skills"]);
     expect(body.agent.mcpServers.demo.headers.authorization).toBe("[REDACTED]");
+
+    await app.close();
+  });
+
+  it("forwards user input answers to the active agent session", async () => {
+    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider() });
+    await app.inject({
+      method: "POST",
+      url: "/api/messages",
+      payload: { message: "hello" }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/user-input",
+      payload: { sessionId: "session-1", requestId: "request-1", answer: "yes" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
 
     await app.close();
   });

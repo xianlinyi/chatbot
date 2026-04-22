@@ -5,7 +5,7 @@ A deployable local-agent chat service with a React chat UI, Fastify API, and a p
 ## Requirements
 
 - Node.js 20 or newer
-- A GitHub token available to the backend host. By default `agent.config.json` reads `GITHUB_TOKEN`.
+- A GitHub Copilot-compatible token configured in `agent.config.json`.
 
 ## Local Development
 
@@ -27,20 +27,21 @@ The production server serves the built frontend and API from the configured host
 
 ## Configuration
 
-Defaults live in `agent.config.json` and can be overridden with environment variables:
+Defaults live in `agent.config.json`. Server binding and model can be overridden with environment variables:
 
 - `PORT`, default `3000`
 - `HOST`, default `0.0.0.0`
 - `AGENT_PROVIDER`, default `github-copilot`
 - `COPILOT_MODEL`, default `gpt-4.1`
-- `COPILOT_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` override the configured token source
 
 Important `agent.config.json` fields:
 
 - `server.host` and `server.port` control the production server listener.
-- `provider.auth.githubTokenEnv` names the environment variable that contains the GitHub token.
-- `provider.auth.githubToken` can hold a literal token for local experiments, but environment variables are safer.
+- `provider.auth.token` contains the Copilot-compatible token. Token authentication is read only from config, not from environment variables.
+- `provider.auth.tokenType` declares the configured token kind. Supported values are `fine-grained-pat`, `copilot-cli-oauth`, and `github-cli-oauth`.
 - `provider.auth.useLoggedInUser` defaults to `false` so GitHub token authentication is explicit.
+
+GitHub Copilot SDK supports fine-grained personal access tokens with the "Copilot Requests" permission, OAuth tokens from the GitHub Copilot CLI app, and OAuth tokens from the GitHub CLI app. Classic personal access tokens with the `ghp_` prefix are not supported.
 
 The app intentionally does not persist chat history. The frontend does not create a backend agent session until the first message is sent. Sessions disappear on idle expiry or server restart.
 
@@ -55,4 +56,4 @@ docker build -t local-agent-chatbot .
 docker run --rm -p 3000:3000 local-agent-chatbot
 ```
 
-Provide Copilot/GitHub credentials to the container environment as required by your chosen authentication method.
+Provide Copilot/GitHub credentials in the container's `agent.config.json` or mount a config file that includes `provider.auth.token`.
