@@ -1060,24 +1060,17 @@ function ThinkingTitle() {
 }
 
 function AssistantToolActivity({ activities }: { activities: ActivityItem[] }) {
-  if (!activities.length) {
+  const skills = activities.filter(activity => activity.category === "skill" && activity.skills?.length);
+
+  if (!skills.length) {
     return null;
   }
 
   return (
     <section className="tool-activity" aria-label="Agent activity">
-      {activities.map((activity) =>
-        activity.category === "skill" && activity.skills?.length ? (
-          <SkillActivityCard key={activity.id} activity={activity} />
-        ) : (
-          <div className={`tool-event ${activity.level ?? "info"}`} key={activity.id}>
-            <div className="tool-event-title">
-              <span>{activity.title}</span>
-            </div>
-            {activity.detail ? <pre><code>{activity.detail}</code></pre> : null}
-          </div>
-        )
-      )}
+      {skills.map((activity) => (
+        <SkillActivityCard key={activity.id} activity={activity} />
+      ))}
     </section>
   );
 }
