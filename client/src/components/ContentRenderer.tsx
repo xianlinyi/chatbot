@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatDisplayEvent } from "../types";
@@ -554,6 +554,100 @@ function SkillPillCard({ name, description }: { name: string; description?: stri
   );
 }
 
+function ChoiceRequestStrings() {
+  const pathsRef = useRef<(SVGPathElement | null)[]>([]);
+
+  useEffect(() => {
+    let frameId: number;
+    let time = 0;
+    const NUM_STRINGS = 13;
+    const NUM_POINTS = 50;
+
+    const strings = Array.from({ length: NUM_STRINGS }).map((_, idx) => {
+      let intensity = 1;
+      if (idx === 0) intensity = 0; // The static central main line
+      else if (idx <= 4) intensity = 0.15 + Math.random() * 0.15; // Smallest amplitude near middle
+      else if (idx <= 8) intensity = 0.4 + Math.random() * 0.3;  // Medium amplitude
+      else intensity = 0.8 + Math.random() * 0.4;                 // Largest amplitude
+
+      return {
+        intensity,
+        components: Array.from({ length: 4 }, () => ({
+          freq: 0.8 + Math.random() * 2.2, // Slightly more dispersed multi-wave frequency
+          speed: (Math.random() - 0.5) * 0.08, // A bit faster time speed
+          phase: Math.random() * Math.PI * 2,
+          targetAmp: 0,
+          currentAmp: 0,
+          tension: 0.01 + Math.random() * 0.025 // Slightly more tension for snappiness
+        }))
+      };
+    });
+
+    const animate = () => {
+      time += 1;
+      
+      strings.forEach((s, idx) => {
+        // Update components
+        s.components.forEach(c => {
+          if (idx === 0) return; // Skip updating for the static main string
+          
+          if (Math.random() > 0.95) {
+            c.targetAmp = (Math.random() - 0.5) * 45 * s.intensity; // Scaled potential amplitude 
+          }
+          c.currentAmp += (c.targetAmp - c.currentAmp) * c.tension;
+        });
+
+        // Compute string path
+        let d = "M 0 40";
+        for (let i = 1; i <= NUM_POINTS; i++) {
+          const x = (i / NUM_POINTS) * 100;
+          let yDisp = 0;
+          s.components.forEach(c => {
+            yDisp += c.currentAmp * Math.sin(c.freq * (x / 100) * Math.PI * 2 + time * c.speed + c.phase);
+          });
+          
+          // Only rapidly constrain very close to endpoints (within 2%), leaving the rest of the string free to wave
+          const envelope = Math.min(1, Math.min(x, 100 - x) / 5);
+          
+          // Clip Y to stay within 2-78 range roughly
+          let y = 40 + yDisp * envelope * 0.35; // Lower multiplier to reduce height further
+          if (y < 2) y = 2;
+          if (y > 78) y = 78;
+          
+          d += ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
+        }
+        
+        const pathBlock = pathsRef.current[idx];
+        if (pathBlock) {
+          pathBlock.setAttribute("d", d);
+        }
+      });
+      frameId = window.requestAnimationFrame(animate);
+    };
+    
+    animate();
+    
+    return () => window.cancelAnimationFrame(frameId);
+  }, []);
+
+  return (
+    <svg className="choice-request-strings" viewBox="0 0 100 80" preserveAspectRatio="none" aria-hidden="true">
+      {Array.from({ length: 13 }).map((_, i) => (
+        <path
+          key={i}
+          ref={(el) => { pathsRef.current[i] = el; }}
+          fill="none"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth={i === 0 ? "0.15" : "1"} // Main string thinner
+          vectorEffect="non-scaling-stroke"
+          opacity={i === 0 ? "0.4" : "0.2"} // Main string slightly darker, others lighter
+        />
+      ))}
+    </svg>
+  );
+}
+
 function ChoiceRequestCard({
   requestId,
   question,
@@ -567,10 +661,17 @@ function ChoiceRequestCard({
   disabled?: boolean;
   onChoiceSelect?: (requestId: string, choice: string) => void;
 }) {
+  const isWaiting = !disabled;
+
   return (
-    <section className="choice-request-card">
+    <section className={`choice-request-card ${isWaiting ? "waiting" : ""}`}>
+      {isWaiting && <ChoiceRequestStrings />}
       <div className="choice-request-prompt">请选择</div>
-      {question ? <p className="choice-request-question">{question}</p> : null}
+      {question ? (
+        <div className="choice-request-question">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{question}</ReactMarkdown>
+        </div>
+      ) : null}
       {choices.length ? (
         <div className="choice-request-options" aria-label="选项">
           {choices.map((choice) => (

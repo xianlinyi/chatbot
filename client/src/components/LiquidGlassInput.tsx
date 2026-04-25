@@ -1,5 +1,5 @@
 import { ComponentPropsWithoutRef, CSSProperties, ReactNode, useEffect, useId, useRef, useState } from "react";
-import * as THREE from "three";
+import { Mesh, OrthographicCamera, PlaneGeometry, Scene, ShaderMaterial, Vector2, WebGLRenderer } from "three";
 import "./LiquidGlassInput.css";
 
 type LiquidGlassInputProps = Omit<ComponentPropsWithoutRef<"form">, "children"> & {
@@ -26,9 +26,11 @@ export function LiquidGlassInput({
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
+    const previousUrl = displacementMapUrl;
+
     return () => {
-      if (displacementMapUrl && displacementMapUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(displacementMapUrl);
+      if (previousUrl && previousUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(previousUrl);
       }
     };
   }, [displacementMapUrl]);
@@ -107,7 +109,7 @@ function LiquidGlassSurface({
     uActive: { value: number };
     uDark: { value: number };
     uHasText: { value: number };
-    uPointer: { value: THREE.Vector2 };
+    uPointer: { value: Vector2 };
   } | undefined>(undefined);
 
   useEffect(() => {
@@ -127,15 +129,16 @@ function LiquidGlassSurface({
       uActive: { value: isActive ? 1 : 0 },
       uDark: { value: isDarkMode ? 1 : 0 },
       uHasText: { value: hasText ? 1 : 0 },
-      uPointer: { value: new THREE.Vector2(0.72, 0.36) },
-      uResolution: { value: new THREE.Vector2(1, 1) },
+      uPointer: { value: new Vector2(0.72, 0.36) },
+      uResolution: { value: new Vector2(1, 1) },
       uTime: { value: 0 }
     };
 
-    let renderer: THREE.WebGLRenderer;
+    let renderer: WebGLRenderer;
+    let frameId = 0;
 
     try {
-      renderer = new THREE.WebGLRenderer({
+      renderer = new WebGLRenderer({
         alpha: true,
         antialias: true,
         canvas,
@@ -150,9 +153,9 @@ function LiquidGlassSurface({
     renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const material = new THREE.ShaderMaterial({
+    const scene = new Scene();
+    const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const material = new ShaderMaterial({
       depthTest: false,
       depthWrite: false,
       transparent: true,
@@ -217,7 +220,7 @@ function LiquidGlassSurface({
       `
     });
 
-    const normalMaterial = new THREE.ShaderMaterial({
+    const normalMaterial = new ShaderMaterial({
       depthTest: false,
       depthWrite: false,
       transparent: true,
@@ -268,8 +271,19 @@ function LiquidGlassSurface({
       `
     });
 
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    const mesh = new Mesh(new PlaneGeometry(2, 2), material);
     scene.add(mesh);
+
+    const renderSurface = () => {
+      renderer.render(scene, camera);
+      frameId = 0;
+    };
+
+    const scheduleRender = () => {
+      if (!frameId) {
+        frameId = window.requestAnimationFrame(renderSurface);
+      }
+    };
 
     const resize = () => {
       const { height, width } = surface.getBoundingClientRect();
@@ -287,6 +301,7 @@ function LiquidGlassSurface({
         }
       }, "image/png");
       mesh.material = material;
+      scheduleRender();
     };
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -295,25 +310,19 @@ function LiquidGlassSurface({
         (event.clientX - bounds.left) / Math.max(bounds.width, 1),
         1 - (event.clientY - bounds.top) / Math.max(bounds.height, 1)
       );
-    };
-
-    let frameId = 0;
-    const animate = () => {
-      renderer.render(scene, camera);
-      frameId = window.requestAnimationFrame(animate);
+      scheduleRender();
     };
 
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(surface);
     window.addEventListener("pointermove", handlePointerMove);
+    canvas.addEventListener("liquid-glass-render", scheduleRender);
     resize();
-    frameId = window.requestAnimationFrame(() => {
-      animate();
-    });
 
     return () => {
       window.cancelAnimationFrame(frameId);
       window.removeEventListener("pointermove", handlePointerMove);
+      canvas.removeEventListener("liquid-glass-render", scheduleRender);
       resizeObserver.disconnect();
       material.dispose();
       normalMaterial.dispose();
@@ -331,6 +340,9 @@ function LiquidGlassSurface({
     uniformsRef.current.uActive.value = isActive ? 1 : 0;
     uniformsRef.current.uDark.value = isDarkMode ? 1 : 0;
     uniformsRef.current.uHasText.value = hasText ? 1 : 0;
+
+    const canvas = canvasRef.current;
+    canvas?.dispatchEvent(new Event("liquid-glass-render"));
   }, [hasText, isActive, isDarkMode]);
 
   return <canvas aria-hidden="true" className="liquid-glass-canvas" ref={canvasRef} />;

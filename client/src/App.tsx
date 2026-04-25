@@ -901,7 +901,7 @@ export function App() {
 
   return (
     <div className="app-container">
-      <DotPulseBackdrop isActive={isSending} isDarkMode={isDarkMode} />
+      <DotPulseBackdrop isActive={isSending || Boolean(pendingInputRequest)} isDarkMode={isDarkMode} />
       <main className="shell">
         <header className="shell-header" aria-label="Chat controls">
           <div className="header-agent-info">

@@ -12,7 +12,33 @@ export default defineConfig({
   root: "client",
   build: {
     outDir: "../dist/client",
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) {
+            return undefined;
+          }
+
+          if (id.includes("/node_modules/three/")) {
+            return "three";
+          }
+
+          if (
+            id.includes("/node_modules/react-markdown/") ||
+            id.includes("/node_modules/remark-gfm/") ||
+            id.includes("/node_modules/micromark") ||
+            id.includes("/node_modules/mdast-util") ||
+            id.includes("/node_modules/hast-util") ||
+            id.includes("/node_modules/unified/")
+          ) {
+            return "markdown";
+          }
+
+          return undefined;
+        }
+      }
+    }
   },
   server: {
     proxy: {

@@ -904,16 +904,46 @@ html.dark .input-request-choice {
 }
 
 .choice-request-card {
-  margin: 8px 0;
-  padding: 8px 0px;
+  position: relative;
+  margin: 14px 0 8px 0;
+  padding: 14px 0 0;
   text-align: left;
 }
 
+.choice-request-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.08); /* Default static line */
+  transition: all 0.3s ease;
+}
+
+.choice-request-strings {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 80px;
+  pointer-events: none;
+  z-index: 10;
+  color: #000000; /* Wave color (Black for light mode) */
+  opacity: 0;
+  animation: wave-in 0.4s forwards ease-in-out;
+}
+
+html.dark .choice-request-strings {
+  color: #ffffff; /* Wave color (White for dark mode) */
+}
+
 .choice-request-prompt {
-  margin: 0 0 12px;
+  margin: 0 0 6px;
   color: var(--text-color);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 500;
   line-height: 1.2;
   opacity: 0.45;
   display: flex;
@@ -923,9 +953,9 @@ html.dark .input-request-choice {
 .choice-request-prompt::before {
   content: "";
   display: inline-block;
-  width: 4px;
-  height: 12px;
-  margin-right: 8px;
+  width: 3px;
+  height: 10px;
+  margin-right: 6px;
   border-radius: 2px;
   background: currentColor;
   opacity: 0.5;
@@ -933,33 +963,43 @@ html.dark .input-request-choice {
 
 .choice-request-question {
   margin: 0;
-  padding: 0 0 14px;
+  padding: 0 0 10px;
   color: var(--text-color);
-  font-size: 15px;
-  font-weight: 600;
+  opacity: 0.7;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 300;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.choice-request-question p {
+  margin: 0 0 8px 0;
+}
+
+.choice-request-question > *:last-child {
+  margin-bottom: 0;
 }
 
 .choice-request-options {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
 }
 
 .choice-request-option {
   display: flex;
   align-items: flex-start;
   width: 100%;
-  min-height: 38px;
-  padding: 10px 12px;
+  min-height: 28px;
+  padding: 6px 8px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-color);
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   text-align: left;
   line-height: 1.4;
   transition: background 160ms ease, transform 160ms ease;
@@ -970,13 +1010,13 @@ html.dark .input-request-choice {
   content: "";
   display: inline-block;
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  margin-right: 12px;
-  margin-top: 3px;
-  border: 1.5px solid currentColor;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  margin-top: 2px;
+  border: 1px solid currentColor;
   border-radius: 50%;
-  opacity: 0.25;
+  opacity: 0.3;
   transition: opacity 160ms ease, background 160ms ease;
   box-sizing: border-box;
 }
@@ -999,6 +1039,10 @@ html.dark .input-request-choice {
 
 .choice-request-question + .choice-request-options {
   margin-top: 0;
+}
+
+html.dark .choice-request-card::before {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 html.dark .choice-request-option {
@@ -1437,3 +1481,4 @@ html.dark .skill-call-pill {
     box-shadow: 0 0 0px #00ff00;
   }
 }
+@keyframes wave-in { from { opacity: 0; } to { opacity: 1; } }

@@ -165,7 +165,7 @@ describe("ContentRenderer turn labels", () => {
     expect(container.querySelector(".assistant-turn-card-shell")).toBeNull();
     expect(screen.getByText("询问用户")).not.toHaveClass("active");
     expect(screen.getByText("请选择")).toHaveClass("choice-request-prompt");
-    expect(screen.getByText("请选择部署环境")).toHaveClass("choice-request-question");
+    expect(screen.getByText("请选择部署环境").closest(".choice-request-question")).toBeInTheDocument();
     expect(screen.getByText("staging")).toHaveClass("choice-request-option");
     expect(screen.getByText("production")).toHaveClass("choice-request-option");
   });
