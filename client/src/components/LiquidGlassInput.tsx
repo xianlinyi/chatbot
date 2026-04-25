@@ -45,6 +45,7 @@ export function LiquidGlassInput({
       {...formProps}
       className={[
         "liquid-glass-input",
+        hasText ? "liquid-glass-input-filled" : "liquid-glass-input-empty",
         isEditable ? "liquid-glass-input-editable" : "liquid-glass-input-disabled",
         className
       ].filter(Boolean).join(" ")}

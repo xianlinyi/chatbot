@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "../config/types.js";
-import type { AgentProvider, AgentStreamEvent } from "../providers/types.js";
+import type { AgentProvider } from "../providers/types.js";
 import type { SessionManager } from "../sessions/sessionManager.js";
 import { redactSecrets } from "../utils/redact.js";
+import { optionalString, requiredString } from "./requestValidation.js";
+import { writeSse } from "./sse.js";
 
 type RegisterApiOptions = {
   config: AppConfig;
@@ -22,13 +24,12 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
   }));
 
   app.post<{ Body: { sessionId?: unknown; message?: unknown } }>("/api/messages", async (request, reply) => {
-    const message = request.body?.message;
-    if (typeof message !== "string" || !message.trim()) {
+    const message = requiredString(request.body?.message);
+    if (!message) {
       return reply.code(400).send({ error: "Message must be a non-empty string." });
     }
 
-    const requestedSessionId = request.body?.sessionId;
-    let sessionId = typeof requestedSessionId === "string" && requestedSessionId.trim() ? requestedSessionId : undefined;
+    let sessionId = optionalString(request.body?.sessionId);
     let created = false;
 
     if (!sessionId || !options.sessions.get(sessionId)) {
@@ -37,7 +38,7 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
       created = true;
     }
 
-    const stream = await options.sessions.sendMessageStream(sessionId, message.trim());
+    const stream = await options.sessions.sendMessageStream(sessionId, message);
     if (!stream) {
       return reply.code(404).send({ error: "Unknown or expired session." });
     }
@@ -72,14 +73,16 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
 
   app.post<{ Body: { sessionId?: unknown; message?: unknown } }>("/api/prompts", async (request, reply) => {
     const { sessionId, message } = request.body ?? {};
-    if (typeof sessionId !== "string" || !sessionId.trim()) {
+    const activeSessionId = requiredString(sessionId);
+    const prompt = requiredString(message);
+    if (!activeSessionId) {
       return reply.code(400).send({ error: "sessionId is required." });
     }
-    if (typeof message !== "string" || !message.trim()) {
+    if (!prompt) {
       return reply.code(400).send({ error: "Message must be a non-empty string." });
     }
 
-    const accepted = await options.sessions.enqueuePrompt(sessionId, message.trim());
+    const accepted = await options.sessions.enqueuePrompt(activeSessionId, prompt);
     if (!accepted) {
       return reply.code(404).send({ error: "Unknown, expired, or inactive session." });
     }
@@ -91,20 +94,23 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
     "/api/user-input",
     async (request, reply) => {
       const { sessionId, requestId, answer, wasFreeform } = request.body ?? {};
-      if (typeof sessionId !== "string" || !sessionId.trim()) {
+      const activeSessionId = requiredString(sessionId);
+      const activeRequestId = requiredString(requestId);
+      const responseText = requiredString(answer);
+      if (!activeSessionId) {
         return reply.code(400).send({ error: "sessionId is required." });
       }
-      if (typeof requestId !== "string" || !requestId.trim()) {
+      if (!activeRequestId) {
         return reply.code(400).send({ error: "requestId is required." });
       }
-      if (typeof answer !== "string" || !answer.trim()) {
+      if (!responseText) {
         return reply.code(400).send({ error: "answer must be a non-empty string." });
       }
 
       const accepted = await options.sessions.respondToUserInput(
-        sessionId,
-        requestId,
-        answer.trim(),
+        activeSessionId,
+        activeRequestId,
+        responseText,
         typeof wasFreeform === "boolean" ? wasFreeform : true
       );
       if (!accepted) {
@@ -116,8 +122,8 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
   );
 
   app.post<{ Body: { sessionId?: unknown } }>("/api/stop", async (request, reply) => {
-    const requestedSessionId = request.body?.sessionId;
-    if (typeof requestedSessionId === "string" && requestedSessionId.trim()) {
+    const requestedSessionId = optionalString(request.body?.sessionId);
+    if (requestedSessionId) {
       const stopped = await options.sessions.delete(requestedSessionId);
       if (!stopped) {
         return reply.code(404).send({ error: "Unknown or expired session." });
@@ -129,9 +135,4 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
     await options.provider.stop();
     return { ok: true };
   });
-}
-
-function writeSse(response: NodeJS.WritableStream, event: AgentStreamEvent): void {
-  response.write(`event: ${event.type}\n`);
-  response.write(`data: ${JSON.stringify(event)}\n\n`);
 }

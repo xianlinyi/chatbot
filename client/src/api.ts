@@ -101,6 +101,28 @@ export async function stopSession(sessionId: string | undefined): Promise<void> 
   }
 }
 
+export function stopSessionOnPageExit(sessionId: string | undefined): void {
+  if (!sessionId) {
+    return;
+  }
+
+  const body = JSON.stringify({ sessionId });
+  if (navigator.sendBeacon) {
+    const payload = new Blob([body], { type: "application/json" });
+    navigator.sendBeacon("/api/stop", payload);
+    return;
+  }
+
+  void fetch("/api/stop", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body,
+    keepalive: true
+  });
+}
+
 async function safeError(response: Response): Promise<string> {
   try {
     const payload = (await response.json()) as { error?: string };

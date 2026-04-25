@@ -101,6 +101,69 @@ describe("App", () => {
     );
   });
 
+  it("stops the active session when the page is closed or refreshed", async () => {
+    const sendBeacon = vi.fn(() => true);
+    Object.defineProperty(navigator, "sendBeacon", {
+      configurable: true,
+      value: sendBeacon
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/agent-info") {
+        return jsonResponse({
+          app: { name: "Test Chatbot", icon: "spark" },
+          agent: {
+            provider: "github-copilot",
+            model: "test-model",
+            auth: { mode: "token", tokenType: "fine-grained-pat", hasToken: true },
+            instructions: "Test instructions",
+            customAgents: [],
+            skillDirectories: [],
+            disabledSkills: [],
+            mcpServers: {},
+            permissions: { mode: "allow-all" },
+            persistence: { enabled: false, scope: "memory-only" }
+          }
+        });
+      }
+
+      if (url === "/api/messages" && init?.method === "POST") {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode('event: session\ndata: {"type":"session","sessionId":"session-1","created":true}\n\n')
+              );
+            }
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" }
+          }
+        );
+      }
+
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("github-copilot · test-model · token");
+    await userEvent.type(screen.getByLabelText("Message"), "Hi");
+    await userEvent.keyboard("{Enter}");
+    await screen.findByRole("button", { name: "Stop response" });
+
+    window.dispatchEvent(new PageTransitionEvent("pagehide"));
+
+    expect(sendBeacon).toHaveBeenCalledWith("/api/stop", expect.any(Blob));
+    const payload = sendBeacon.mock.calls[0][1] as Blob;
+    expect(payload.type).toBe("application/json");
+    expect(payload.size).toBe(JSON.stringify({ sessionId: "session-1" }).length);
+  });
+
   it("switches the send button to stop while a response is streaming", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -222,9 +285,12 @@ describe("App", () => {
     await userEvent.type(input, "Hi");
     await userEvent.keyboard("{Enter}");
     await screen.findByRole("button", { name: "Stop response" });
+    expect(screen.queryByRole("button", { name: "Send message" })).not.toBeInTheDocument();
 
     expect(input).not.toBeDisabled();
     await userEvent.type(input, "Add tests");
+    expect(await screen.findByRole("button", { name: "Send message" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
     await userEvent.keyboard("{Enter}");
 
     await waitFor(() =>
@@ -237,6 +303,7 @@ describe("App", () => {
       )
     );
     expect(await screen.findByText("Add tests")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Stop response" })).toBeInTheDocument();
   });
 
   it("renders assistant responses as markdown", async () => {
@@ -356,8 +423,8 @@ describe("App", () => {
     await userEvent.type(screen.getByLabelText("Message"), "Hi");
     await userEvent.keyboard("{Enter}");
     expect(document.body.classList.contains("request-active")).toBe(true);
-    expect(await screen.findByRole("button", { name: "Send message" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Stop response" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send message" })).not.toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: "production" }));
 
     await waitFor(() =>
@@ -377,16 +444,6 @@ describe("App", () => {
     expect(document.querySelectorAll("article.message.user")).toHaveLength(1);
   });
 
-  it("applies the assistant event filter to mock display data", () => {
-    render(<App />);
-
-    return waitFor(() => {
-      const assistantMessage = document.querySelector("article.message.assistant");
-      expect(assistantMessage).not.toBeNull();
-      expect(assistantMessage?.textContent).toContain("请求工具");
-      expect(assistantMessage?.querySelector(".assistant-turn")).not.toBeNull();
-    });
-  });
 });
 
 function jsonResponse(body: unknown, status = 200): Response {

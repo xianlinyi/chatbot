@@ -1,14 +1,22 @@
 .liquid-glass-input {
+  --liquid-glass-lift-shadow:
+    0 -10px 24px -22px rgba(0, 0, 0, 0.24),
+    0 18px 34px -26px rgba(0, 0, 0, 0.36);
   position: relative;
   isolation: isolate;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 24px;
   overflow: hidden;
   background: transparent;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
-  transition: background-color 0.35s ease, border-color 0.35s ease, box-shadow 0.35s ease, transform 0.1s ease;
+  box-shadow: none;
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    box-shadow 520ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
   transform: translateZ(0);
   backface-visibility: hidden;
+  will-change: transform;
 }
 
 .liquid-glass-input::before {
@@ -19,12 +27,12 @@
   pointer-events: none;
   display: block;
   border-radius: inherit;
-  opacity: 0;
+  opacity: 0.72;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.06)),
-    rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(18px) saturate(145%);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
+    linear-gradient(135deg, var(--liquid-glass-highlight), var(--liquid-glass-edge)),
+    var(--liquid-glass-surface);
+  backdrop-filter: blur(16px) saturate(118%);
+  -webkit-backdrop-filter: blur(16px) saturate(118%);
   transition: opacity 260ms ease;
   will-change: opacity, transform;
   transform: translateZ(0);
@@ -35,11 +43,73 @@
   opacity: 1;
 }
 
+.liquid-glass-input-disabled::before {
+  opacity: 0.72;
+}
+
+.liquid-glass-input-disabled::after {
+  opacity: 0.9;
+}
+
+.liquid-glass-input-empty::before,
+.liquid-glass-input-empty.liquid-glass-input-editable::before,
+.liquid-glass-input-empty.liquid-glass-input-disabled::before {
+  opacity: 0;
+}
+
+.liquid-glass-input-empty.focused::before,
+.liquid-glass-input-empty.liquid-glass-input-editable.focused::before {
+  opacity: 0.86;
+}
+
+.liquid-glass-input.composer-dropping::before,
+.liquid-glass-input-empty.composer-dropping.focused::before,
+.liquid-glass-input-empty.liquid-glass-input-editable.composer-dropping.focused::before {
+  opacity: 0;
+}
+
+.liquid-glass-input.composer-dropping,
+.liquid-glass-input-empty.composer-dropping.focused,
+.liquid-glass-input-empty.liquid-glass-input-editable.composer-dropping.focused,
+html.dark .liquid-glass-input.composer-dropping,
+html.dark .liquid-glass-input-empty.composer-dropping.focused,
+html.dark .liquid-glass-input-empty.liquid-glass-input-editable.composer-dropping.focused {
+  border-color: transparent;
+  box-shadow: none;
+  transform: translateZ(0);
+}
+
+.liquid-glass-input-filled,
+.liquid-glass-input-empty.focused {
+  transform: translate3d(0, -2px, 0);
+}
+
+.liquid-glass-input-filled::before,
+.liquid-glass-input-empty.focused::before {
+  backdrop-filter: blur(28px) saturate(138%);
+  -webkit-backdrop-filter: blur(28px) saturate(138%);
+}
+
+.liquid-glass-input-empty::after {
+  opacity: 1;
+}
+
+.liquid-glass-input-empty,
+.liquid-glass-input-empty.liquid-glass-input-editable,
+.liquid-glass-input-empty.liquid-glass-input-disabled,
+.liquid-glass-input-empty.focused,
+html.dark .liquid-glass-input-empty,
+html.dark .liquid-glass-input-empty.liquid-glass-input-editable,
+html.dark .liquid-glass-input-empty.focused {
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .liquid-glass-input-editable {
   border-color: transparent;
   box-shadow:
-    0 16px 46px rgba(0, 0, 0, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .liquid-glass-input::after {
@@ -62,26 +132,27 @@
 }
 
 html.dark .liquid-glass-input {
+  --liquid-glass-lift-shadow:
+    0 -12px 26px -22px rgba(0, 0, 0, 0.42),
+    0 20px 38px -26px rgba(0, 0, 0, 0.58);
   background: transparent;
   border-color: transparent;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
 }
 
 html.dark .liquid-glass-input::before {
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.03)),
-    rgba(18, 18, 18, 0.16);
+    linear-gradient(135deg, var(--liquid-glass-highlight), var(--liquid-glass-edge)),
+    var(--liquid-glass-surface);
 }
 
 html.dark .liquid-glass-input-editable {
   border-color: transparent;
-  box-shadow:
-    0 16px 46px rgba(0, 0, 0, 0.32),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .liquid-glass-input.focused {
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  box-shadow: none;
   border-color: rgba(255, 255, 255, 0.4);
 }
 
@@ -92,15 +163,114 @@ html.dark .liquid-glass-input.focused {
 .liquid-glass-input-editable.focused {
   border-color: transparent;
   box-shadow:
-    0 18px 52px rgba(0, 0, 0, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    var(--liquid-glass-lift-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 html.dark .liquid-glass-input-editable.focused {
   border-color: transparent;
   box-shadow:
-    0 18px 52px rgba(0, 0, 0, 0.36),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    var(--liquid-glass-lift-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.liquid-glass-input-filled.liquid-glass-input-editable {
+  border-color: transparent;
+  box-shadow:
+    var(--liquid-glass-lift-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html.dark .liquid-glass-input-filled.liquid-glass-input-editable {
+  border-color: transparent;
+  box-shadow:
+    var(--liquid-glass-lift-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.liquid-glass-input-filled.liquid-glass-input-editable.focused {
+  border-color: transparent;
+  box-shadow:
+    var(--liquid-glass-lift-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+html.dark .liquid-glass-input-filled.liquid-glass-input-editable.focused {
+  border-color: transparent;
+  box-shadow:
+    var(--liquid-glass-lift-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.liquid-glass-input-empty.focused,
+.liquid-glass-input-empty.liquid-glass-input-editable.focused,
+html.dark .liquid-glass-input-empty.focused,
+html.dark .liquid-glass-input-empty.liquid-glass-input-editable.focused {
+  border-color: transparent;
+  box-shadow:
+    var(--liquid-glass-lift-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.liquid-glass-input.composer-dropping,
+.liquid-glass-input.composer-dropping.focused,
+.liquid-glass-input-empty.composer-dropping.focused,
+.liquid-glass-input-empty.liquid-glass-input-editable.composer-dropping.focused,
+html.dark .liquid-glass-input.composer-dropping,
+html.dark .liquid-glass-input.composer-dropping.focused,
+html.dark .liquid-glass-input-empty.composer-dropping.focused,
+html.dark .liquid-glass-input-empty.liquid-glass-input-editable.composer-dropping.focused {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  transform: translateZ(0);
+}
+
+.liquid-glass-input.composer-dropping::before,
+.liquid-glass-input.composer-dropping.focused::before,
+.liquid-glass-input-empty.composer-dropping.focused::before,
+.liquid-glass-input-empty.liquid-glass-input-editable.composer-dropping.focused::before,
+html.dark .liquid-glass-input.composer-dropping::before,
+html.dark .liquid-glass-input.composer-dropping.focused::before,
+html.dark .liquid-glass-input-empty.composer-dropping.focused::before,
+html.dark .liquid-glass-input-empty.liquid-glass-input-editable.composer-dropping.focused::before {
+  opacity: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: transparent;
+  transition: none;
+}
+
+.liquid-glass-input.composer-dropping::after,
+.liquid-glass-input.composer-dropping.focused::after,
+.liquid-glass-input-empty.composer-dropping.focused::after,
+.liquid-glass-input-empty.liquid-glass-input-editable.composer-dropping.focused::after,
+html.dark .liquid-glass-input.composer-dropping::after,
+html.dark .liquid-glass-input.composer-dropping.focused::after,
+html.dark .liquid-glass-input-empty.composer-dropping.focused::after,
+html.dark .liquid-glass-input-empty.liquid-glass-input-editable.composer-dropping.focused::after {
+  opacity: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transition: none;
+}
+
+.liquid-glass-input.composer-dropping > .liquid-glass-canvas,
+html.dark .liquid-glass-input.composer-dropping > .liquid-glass-canvas {
+  opacity: 0;
+  transition: none;
 }
 
 .liquid-glass-filter-defs {
