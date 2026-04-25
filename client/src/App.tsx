@@ -10,7 +10,6 @@ import {
   usageEventKey
 } from "./chat/tokenUsage.js";
 import type { TokenUsage } from "./chat/tokenUsage.js";
-import './components/ToolExecutionBlock.css';
 import { ChatHeader } from "./components/ChatHeader";
 import { DotPulseBackdrop } from "./components/DotPulseBackdrop";
 import { SendIcon, StopIcon } from "./components/icons.js";
@@ -48,12 +47,12 @@ export function App() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const userMessageBodyRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const activeRequestControllerRef = useRef<AbortController | undefined>();
-  const activeAssistantIdRef = useRef<string | undefined>();
+  const activeRequestControllerRef = useRef<AbortController | undefined>(undefined);
+  const activeAssistantIdRef = useRef<string | undefined>(undefined);
   const manualStopRequestedRef = useRef(false);
   const countedUsageEventsRef = useRef<Set<string>>(new Set());
-  const sessionIdRef = useRef<string | undefined>();
-  const composerDropTimeoutRef = useRef<number | undefined>();
+  const sessionIdRef = useRef<string | undefined>(undefined);
+  const composerDropTimeoutRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
