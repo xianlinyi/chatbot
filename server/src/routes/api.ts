@@ -1,5 +1,3 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "../config/types.js";
 import type { AgentProvider, AgentStreamEvent } from "../providers/types.js";
@@ -61,38 +59,21 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
       created
     });
 
-    // Output to project root
-    const rootDir = process.cwd();
-    const outputFile = path.join(rootDir, "bot_output.log");
-    let botFullText = "";
-
     for await (const event of stream) {
       if (reply.raw.destroyed) {
         break;
       }
 
-      if (event.type === "delta" && event.content) {
-         botFullText += event.content;
-      }
-
-      // Log exactly what the bot returns to the file
-      fs.appendFileSync(outputFile, JSON.stringify(event) + "\n", "utf8");
-
       writeSse(reply.raw, event);
-    }
-    
-    if (botFullText.trim()) {
-       // Also save just the pure text to a markdown file
-       fs.appendFileSync(path.join(rootDir, "bot_response_text.md"), botFullText + "\n\n---\n\n", "utf8");
     }
 
     reply.raw.end();
   });
 
-  app.post<{ Body: { sessionId?: unknown; requestId?: unknown; answer?: unknown } }>(
+  app.post<{ Body: { sessionId?: unknown; requestId?: unknown; answer?: unknown; wasFreeform?: unknown } }>(
     "/api/user-input",
     async (request, reply) => {
-      const { sessionId, requestId, answer } = request.body ?? {};
+      const { sessionId, requestId, answer, wasFreeform } = request.body ?? {};
       if (typeof sessionId !== "string" || !sessionId.trim()) {
         return reply.code(400).send({ error: "sessionId is required." });
       }
@@ -103,7 +84,12 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
         return reply.code(400).send({ error: "answer must be a non-empty string." });
       }
 
-      const accepted = await options.sessions.respondToUserInput(sessionId, requestId, answer.trim());
+      const accepted = await options.sessions.respondToUserInput(
+        sessionId,
+        requestId,
+        answer.trim(),
+        typeof wasFreeform === "boolean" ? wasFreeform : true
+      );
       if (!accepted) {
         return reply.code(404).send({ error: "Unknown or expired input request." });
       }
@@ -111,6 +97,21 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
       return { ok: true };
     }
   );
+
+  app.post<{ Body: { sessionId?: unknown } }>("/api/stop", async (request, reply) => {
+    const requestedSessionId = request.body?.sessionId;
+    if (typeof requestedSessionId === "string" && requestedSessionId.trim()) {
+      const stopped = await options.sessions.delete(requestedSessionId);
+      if (!stopped) {
+        return reply.code(404).send({ error: "Unknown or expired session." });
+      }
+
+      return { ok: true };
+    }
+
+    await options.provider.stop();
+    return { ok: true };
+  });
 }
 
 function writeSse(response: NodeJS.WritableStream, event: AgentStreamEvent): void {

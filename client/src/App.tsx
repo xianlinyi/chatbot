@@ -1,9 +1,94 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import * as THREE from "three";
-import { answerUserInput, fetchAgentInfo, sendMessage } from "./api.js";
-import type { AgentInfoResponse, ChatMessage, InputRequest } from "./types.js";
+import { answerUserInput, fetchAgentInfo, sendMessage, stopSession } from "./api.js";
+import type { AgentInfoResponse, ChatDisplayEvent, ChatMessage, InputRequest } from "./types.js";
+import './components/ToolExecutionBlock.css';
+import { ContentRenderer } from "./components/ContentRenderer";
+import { LiquidGlassInput } from "./components/LiquidGlassInput";
 
 const USER_MESSAGE_COLLAPSED_HEIGHT = 168;
+const MOCK_STREAMING_ASSISTANT_MESSAGE_ID = "mock-2";
+const MOCK_STREAMING_LINE_DELAY_MS = 120;
+const MOCK_STREAMING_ASSISTANT_EVENTS: ChatDisplayEvent[] = [
+  createDisplayEvent("assistant_event", "assistant.turn_start", {
+    turnId: 0,
+    interactionId: "e7269fe1-f5a1-4851-8136-52de294f2ef8"
+  }),
+  createDisplayEvent("assistant_event", "assistant.message", {
+    content: "",
+    toolRequests: [
+      {
+        name: "bash",
+        arguments: {
+          command: "find . -type f | wc -l",
+          description: "Count total number of files in the project"
+        }
+      }
+    ],
+    messageId: "1a49f7a2-3afd-47ae-9fdb-92d38e0cb840",
+    outputTokens: 34,
+    interactionId: "e7269fe1-f5a1-4851-8136-52de294f2ef8"
+  }),
+  createDisplayEvent("tool", "tool.execution_start", {
+    toolCallId: "call_i5MalEr0Fhm21C9xJZrqYzV1",
+    toolName: "bash",
+    arguments: {
+      command: "find . -type f | wc -l",
+      description: "Count total number of files in the project"
+    }
+  }),
+  createDisplayEvent("tool", "tool.execution_complete", {
+    toolCallId: "call_i5MalEr0Fhm21C9xJZrqYzV1",
+    model: "gpt-4.1",
+    interactionId: "e7269fe1-f5a1-4851-8136-52de294f2ef8",
+    success: true,
+    result: {
+      content: "18189\n<exited with exit code 0>",
+      detailedContent: "18189\n<exited with exit code 0>"
+    },
+    toolTelemetry: {
+      properties: {
+        customTimeout: false,
+        executionMode: "sync",
+        detached: false
+      },
+      metrics: {
+        commandTimeout: 30000
+      }
+    }
+  }),
+  createDisplayEvent("assistant_event", "assistant.turn_end", { turnId: 0 }),
+  createDisplayEvent("assistant_event", "assistant.turn_start", {
+    turnId: 1,
+    interactionId: "e7269fe1-f5a1-4851-8136-52de294f2ef8"
+  }),
+  createDisplayEvent("assistant_event", "assistant.message", {
+    content: "当前项目总文件数量为 18,189 个。",
+    messageId: "621a574c-02fd-41bb-88d2-c5b612822cfe",
+    outputTokens: 14,
+    interactionId: "e7269fe1-f5a1-4851-8136-52de294f2ef8"
+  }),
+  createDisplayEvent("assistant_event", "assistant.turn_end", { turnId: 1 })
+];
+
+function createDisplayEvent(
+  type: ChatDisplayEvent["type"],
+  eventType: string,
+  data: Record<string, unknown>
+): ChatDisplayEvent {
+  return { type, eventType, data };
+}
+
+function displayEventTypeFor(eventType: string): ChatDisplayEvent["type"] {
+  if (eventType.startsWith("tool.")) {
+    return "tool";
+  }
+
+  if (eventType.startsWith("session.")) {
+    return "session_event";
+  }
+
+  return "assistant_event";
+}
 
 function areBooleanRecordsEqual(left: Record<string, boolean>, right: Record<string, boolean>) {
   const leftKeys = Object.keys(left);
@@ -16,281 +101,232 @@ function areBooleanRecordsEqual(left: Record<string, boolean>, right: Record<str
   return leftKeys.every((key) => left[key] === right[key]);
 }
 
-function LiquidGlassSurface({
-  hasText,
-  isActive,
-  isDarkMode,
-  onDisplacementUpdate,
-  onSizeUpdate
-}: {
-  hasText: boolean;
-  isActive: boolean;
-  isDarkMode: boolean;
-  onDisplacementUpdate: (url: string) => void;
-  onSizeUpdate: ({ width, height }: { width: number; height: number }) => void;
-}) {
+type PulseDot = {
+  x: number;
+  y: number;
+  startedAt: number;
+  duration: number;
+  color: [number, number, number];
+};
+
+type TokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+};
+
+type DotWaveProps = {
+  cxOffset: number;
+  cyOffset: number;
+  angX: number;
+  angY: number;
+  speedRad: number;
+  speedX: number;
+  speedY: number;
+};
+
+const DOT_WAVE_FADE_RATE = 0.0008;
+const DOT_WAVE_CYCLE_MS = 2800;
+const DOT_GRID_SIZE = 12;
+const DOT_BASE_ALPHA = 0.12;
+const DOT_BOTTOM_FADE_HEIGHT = 96;
+const DOT_COMPOSER_CLEARANCE = 18;
+const DOT_TOP_FADE_HEIGHT = 150;
+
+function createDotWaveProps(): DotWaveProps {
+  const initialAngle = Math.random() * Math.PI * 2;
+
+  return {
+    cxOffset: (Math.random() - 0.5) * 200,
+    cyOffset: (Math.random() - 0.5) * 200,
+    angX: Math.cos(initialAngle) * 0.012,
+    angY: Math.sin(initialAngle) * 0.012,
+    speedRad: 1.0 + (Math.random() - 0.5) * 0.4,
+    speedX: 0.8 + (Math.random() - 0.5) * 0.3,
+    speedY: 0.9 + (Math.random() - 0.5) * 0.3,
+  };
+}
+
+function DotPulseBackdrop({ isActive, isDarkMode }: { isActive: boolean; isDarkMode: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const uniformsRef = useRef<{
-    uActive: { value: number };
-    uDark: { value: number };
-    uHasText: { value: number };
-    uPointer: { value: THREE.Vector2 };
-  } | undefined>(undefined);
+  const globalAlphaRef = useRef(0);
+  const wavePropsRef = useRef<DotWaveProps>(createDotWaveProps());
+  const finishWaveUntilRef = useRef<number | undefined>();
+  const waveStartedAtRef = useRef(0);
+  const wasActiveRef = useRef(isActive);
 
   useEffect(() => {
+    if (typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent)) {
+      return;
+    }
+
     const canvas = canvasRef.current;
-    const surface = canvas?.parentElement;
+    const context = canvas?.getContext("2d");
 
-    if (
-      !canvas ||
-      !surface ||
-      typeof WebGLRenderingContext === "undefined" ||
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-    ) {
+    if (!canvas || !context) {
       return;
     }
 
-    const uniforms = {
-      uActive: { value: isActive ? 1 : 0 },
-      uDark: { value: isDarkMode ? 1 : 0 },
-      uHasText: { value: hasText ? 1 : 0 },
-      uPointer: { value: new THREE.Vector2(0.72, 0.36) },
-      uResolution: { value: new THREE.Vector2(1, 1) },
-      uTime: { value: 0 }
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    let frameId = 0;
+    let width = 0;
+    let height = 0;
+    let pixelRatio = 1;
+    let lastTime = performance.now();
+
+    const now = performance.now();
+
+    if (isActive && !wasActiveRef.current) {
+      wavePropsRef.current = createDotWaveProps();
+      waveStartedAtRef.current = now;
+    }
+
+    if (!isActive && wasActiveRef.current) {
+      const elapsed = Math.max(0, now - waveStartedAtRef.current);
+      const remainingCycle = DOT_WAVE_CYCLE_MS - (elapsed % DOT_WAVE_CYCLE_MS);
+      finishWaveUntilRef.current = now + remainingCycle;
+    } else if (isActive) {
+      if (waveStartedAtRef.current === 0) {
+        waveStartedAtRef.current = now;
+      }
+      finishWaveUntilRef.current = undefined;
+    }
+    wasActiveRef.current = isActive;
+
+    const draw = (now: number) => {
+      const dt = now - lastTime;
+      lastTime = now;
+      const shouldFinishWave =
+        !prefersReducedMotion && !isActive && finishWaveUntilRef.current !== undefined && now < finishWaveUntilRef.current;
+      const shouldHoldWave = isActive || shouldFinishWave;
+      const waveProps = wavePropsRef.current;
+
+      if (shouldHoldWave && !prefersReducedMotion) {
+        globalAlphaRef.current = Math.min(1, globalAlphaRef.current + dt * DOT_WAVE_FADE_RATE);
+      } else {
+        finishWaveUntilRef.current = undefined;
+        globalAlphaRef.current = Math.max(0, globalAlphaRef.current - dt * DOT_WAVE_FADE_RATE);
+      }
+
+      context.clearRect(0, 0, width, height);
+
+      const time = ((now - waveStartedAtRef.current) / DOT_WAVE_CYCLE_MS) * Math.PI * 2;
+      const columns = Math.ceil(width / DOT_GRID_SIZE);
+      const rows = Math.ceil(height / DOT_GRID_SIZE);
+      const cx = width / 2 + waveProps.cxOffset;
+      const cy = height / 2 + waveProps.cyOffset;
+      const colorRGB = isDarkMode ? "255, 255, 255" : "0, 0, 0";
+      const waveAlpha = prefersReducedMotion ? 0 : globalAlphaRef.current;
+      const centerX = width / 2;
+      const centerY = height / 2;
+      const maxCenterDistance = Math.max(
+        Math.hypot(centerX, centerY),
+        Math.hypot(width - centerX, centerY),
+        Math.hypot(centerX, height - centerY),
+        Math.hypot(width - centerX, height - centerY),
+        1
+      );
+      const bottomFadeStart = Math.max(0, height - DOT_COMPOSER_CLEARANCE - DOT_BOTTOM_FADE_HEIGHT);
+      const bottomFadeEnd = Math.max(0, height - DOT_COMPOSER_CLEARANCE);
+
+      for (let i = 0; i < columns; i++) {
+        for (let j = 0; j < rows; j++) {
+          const baseX = i * DOT_GRID_SIZE;
+          const baseY = j * DOT_GRID_SIZE;
+
+          const horizontalDistance = Math.abs(baseX - centerX) / Math.max(centerX, 1);
+          const verticalDistance = Math.abs(baseY - centerY) / Math.max(centerY, 1);
+          const centerDistance = Math.sqrt(horizontalDistance * horizontalDistance * 0.42 + verticalDistance * verticalDistance);
+          const radialFade = Math.pow(Math.max(0, 1 - centerDistance), 0.92);
+          let verticalFade = 1;
+          if (baseY < DOT_TOP_FADE_HEIGHT) {
+            verticalFade = Math.max(0, baseY / DOT_TOP_FADE_HEIGHT);
+          } else if (baseY > bottomFadeStart) {
+            verticalFade = Math.max(0, 1 - (baseY - bottomFadeStart) / Math.max(1, bottomFadeEnd - bottomFadeStart));
+          }
+          verticalFade *= radialFade;
+          if (verticalFade <= 0.01) continue;
+
+          const dx = baseX - cx;
+          const dy = baseY - cy;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const radialWave = Math.sin(dist * 0.015 - time * waveProps.speedRad);
+          const dirWave1 = Math.sin((dx * waveProps.angX + dy * waveProps.angY) + time * waveProps.speedX);
+          const dirWave2 = Math.cos((dx * waveProps.angY - dy * waveProps.angX) + time * waveProps.speedY);
+          const z = radialWave + (dirWave1 + dirWave2) * 0.5;
+          const normalizedZ = Math.max(0, Math.min(1, (z + 0.2) / 2.2));
+          const lift = z < -0.2 ? 0 : normalizedZ;
+          const waveAmount = waveAlpha * Math.pow(lift, 1.5);
+          const maxAlpha = isDarkMode ? 0.4 : 0.25;
+          const alpha = (DOT_BASE_ALPHA + (maxAlpha - DOT_BASE_ALPHA) * waveAmount) * verticalFade;
+          const radius = (1 + lift * 1.5 * waveAlpha) * verticalFade;
+
+          context.beginPath();
+          context.arc(baseX, baseY - lift * 4 * waveAlpha, Math.max(0.1, radius), 0, Math.PI * 2);
+          context.fillStyle = `rgba(${colorRGB}, ${alpha.toFixed(3)})`;
+          context.fill();
+        }
+      }
+
+      if (shouldHoldWave || globalAlphaRef.current > 0) {
+        frameId = window.requestAnimationFrame(draw);
+      } else {
+        frameId = 0;
+      }
     };
-
-    let renderer: THREE.WebGLRenderer;
-
-    try {
-      renderer = new THREE.WebGLRenderer({
-        alpha: true,
-        antialias: true,
-        canvas,
-        preserveDrawingBuffer: true,
-        powerPreference: "high-performance"
-      });
-    } catch {
-      return;
-    }
-
-    uniformsRef.current = uniforms;
-    renderer.setClearColor(0x000000, 0);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    const material = new THREE.ShaderMaterial({
-      depthTest: false,
-      depthWrite: false,
-      transparent: true,
-      uniforms,
-      vertexShader: `
-        varying vec2 vUv;
-
-        void main() {
-          vUv = uv;
-          gl_Position = vec4(position.xy, 0.0, 1.0);
-        }
-      `,
-      fragmentShader: `
-        precision highp float;
-
-        varying vec2 vUv;
-
-        uniform float uActive;
-        uniform float uDark;
-        uniform float uHasText;
-        uniform float uTime;
-        uniform vec2 uPointer;
-        uniform vec2 uResolution;
-
-        void main() {
-          vec2 uv = vUv;
-          vec2 aspect = vec2(uResolution.x / max(uResolution.y, 1.0), 1.0);
-          vec2 p = (uv - 0.5) * aspect;
-          vec2 pointer = (uPointer - 0.5) * aspect;
-          
-          float distToPointer = length(p - pointer);
-          
-          // 重新计算绝对像素边缘以限制特效范围在边缘极其细微的带内
-          vec2 pixelCoord = uv * uResolution;
-          
-          // 计算到 24px 圆角矩形距离场 (SDF) 
-          vec2 center = uResolution * 0.5;
-          vec2 d = abs(pixelCoord - center);
-          vec2 extents = center - vec2(24.0); // 外层容器圆角 24px
-          vec2 q = d - extents;
-          
-          // 拐角程度系数 (0.0 表示直线边缘，1.0 表示处于最极端的拐角弧线点)
-          float cornerFactor = clamp(max(q.x, 0.0) * max(q.y, 0.0) / 288.0, 0.0, 1.0);
-          
-          // 到圆角边框的垂直切线距离
-          float distToBoundary = 24.0 - (length(max(q, 0.0)) + min(max(q.x, q.y), 0.0));
-          
-          vec2 signP = sign(pixelCoord - center);
-          vec2 normal = vec2(0.0);
-          if (q.x > 0.0 && q.y > 0.0) {
-              normal = normalize(q) * signP;
-          } else if (q.x > q.y) {
-              normal = vec2(1.0, 0.0) * signP;
-          } else {
-              normal = vec2(0.0, 1.0) * signP;
-          }
-          
-          // 现将所有边框统一设为 24px：
-          float currentEdgeWidth = 24.0;
-          
-          // 形变发光区域遮罩与物理边厚强绑定同步消散，采用类似的抛物线消落
-          float edgeMask = cos(clamp(distToBoundary / currentEdgeWidth, 0.0, 1.0) * 1.5707963);
-
-          // 用户希望能有一致的透明颜色，移除原来的彩虹色散与焦点高亮
-          vec3 baseColor = vec3(1.0);
-          float alpha = 0.05 * edgeMask; // 极致微弱甚至能被忽略的一致透明抛光涂层
-          if (uDark > 0.5) {
-            alpha = 0.0; // 黑夜模式下彻底去除泛白涂层
-          }
-          
-          gl_FragColor = vec4(baseColor, alpha);
-        }
-      `
-    });
-
-    const normalMaterial = new THREE.ShaderMaterial({
-      depthTest: false,
-      depthWrite: false,
-      transparent: true,
-      uniforms,
-      vertexShader: material.vertexShader,
-      fragmentShader: `
-        precision highp float;
-
-        varying vec2 vUv;
-        uniform vec2 uResolution;
-
-        void main() {
-          vec2 pixelCoord = vUv * uResolution;
-          vec2 center = uResolution * 0.5;
-          vec2 d = abs(pixelCoord - center);
-          vec2 extents = center - vec2(24.0);
-          vec2 q = d - extents;
-          
-          float distOutside = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-          float distToBoundary = 24.0 - distOutside;
-          
-          float edgeWidth = 12.0; 
-          
-          vec2 centeredP = pixelCoord - center; 
-          vec2 signP = sign(centeredP);
-          if(signP.x == 0.0) signP.x = 1.0;
-          if(signP.y == 0.0) signP.y = 1.0;
-          
-          vec2 normal = vec2(0.0);
-          if (q.x > 0.0 && q.y > 0.0) {
-              normal = normalize(q) * signP;
-          } else if (q.x > q.y) {
-              normal = vec2(1.0, 0.0) * signP;
-          } else {
-              normal = vec2(0.0, 1.0) * signP;
-          }
-          
-          vec2 disp = vec2(0.0);
-          
-          // 统一 24 像素的厚度
-          float currentEdgeWidth = 24.0;
-
-          // If within the edge boundary volume
-          if (distToBoundary >= 0.0 && distToBoundary <= currentEdgeWidth) {
-              float t = distToBoundary / currentEdgeWidth;
-              // 为实现“纯粹单向拉伸”并彻底消除“折返/对称镜像线”的过度视觉：
-              // 必须保证坐标采样函数单调不交叉！SVG max scale=64 (单侧最大偏移32px)。
-              // 在24px物理厚度上，如果使用二次衰减且偏移总量>24，向内侧读取时必定反转交叉！
-              // 所以我们要采取 24/32 = 0.75 强力安全限位，搭配完美的纯线性单调过渡。
-              float amplitude = 0.35 * (1.0 - t);
-              // X取反向(-normal.x)，Y取正向(+normal.y)，刚好能统一从所有边的中心内侧拉取画面像素
-              disp = vec2(-normal.x, normal.y) * amplitude;
-          }
-          
-          // Mapping disp to RGB channels (0 to 1) for the SVG DisplacementMap.
-          // Invert both X and Y.
-          vec2 colorData = clamp(vec2(disp.x, disp.y) * 0.5 + 0.5, 0.0, 1.0);
-          gl_FragColor = vec4(colorData, 0.5, 1.0);
-        }
-      `
-    });
-
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
-    scene.add(mesh);
 
     const resize = () => {
-      const { height, width } = surface.getBoundingClientRect();
-      const nextWidth = Math.max(1, Math.floor(width));
-      const nextHeight = Math.max(1, Math.floor(height));
-      renderer.setSize(nextWidth, nextHeight, false);
-      uniforms.uResolution.value.set(nextWidth, nextHeight);
-      onSizeUpdate({ width: nextWidth, height: nextHeight });
+      pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = Math.max(1, Math.round(width * pixelRatio));
+      canvas.height = Math.max(1, Math.round(height * pixelRatio));
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
 
-      // Generate the replacement lens displacement map on resize
-      mesh.material = normalMaterial;
-      renderer.render(scene, camera);
-      canvas.toBlob((blob) => {
-        if (blob) {
-          onDisplacementUpdate(URL.createObjectURL(blob));
-        }
-      }, "image/png");
-      mesh.material = material;
+      if (!frameId) {
+        draw(performance.now());
+      }
     };
 
-    const handlePointerMove = (event: PointerEvent) => {
-      if (!surface) return;
-      const bounds = surface.getBoundingClientRect();
-      uniforms.uPointer.value.set(
-        (event.clientX - bounds.left) / Math.max(bounds.width, 1),
-        1 - (event.clientY - bounds.top) / Math.max(bounds.height, 1)
-      );
-    };
-
-    let frameId = 0;
-    const animate = () => {
-      renderer.render(scene, camera);
-      frameId = window.requestAnimationFrame(animate);
-    };
-
-    const resizeObserver = new ResizeObserver(resize);
-    resizeObserver.observe(surface);
-    window.addEventListener("pointermove", handlePointerMove);
     resize();
-    frameId = window.requestAnimationFrame(() => {
-      animate();
-    });
+    window.addEventListener("resize", resize);
 
     return () => {
       window.cancelAnimationFrame(frameId);
-      window.removeEventListener("pointermove", handlePointerMove);
-      resizeObserver.disconnect();
-      material.dispose();
-      mesh.geometry.dispose();
-      renderer.dispose();
-      uniformsRef.current = undefined;
+      window.removeEventListener("resize", resize);
     };
-  }, []);
+  }, [isActive, isDarkMode]);
 
-  useEffect(() => {
-    if (!uniformsRef.current) {
-      return;
-    }
-
-    uniformsRef.current.uActive.value = isActive ? 1 : 0;
-    uniformsRef.current.uDark.value = isDarkMode ? 1 : 0;
-    uniformsRef.current.uHasText.value = hasText ? 1 : 0;
-  }, [hasText, isActive, isDarkMode]);
-
-  return <canvas aria-hidden="true" className="liquid-glass-canvas" ref={canvasRef} />;
+  return <canvas aria-hidden="true" className="dot-pulse-backdrop" ref={canvasRef} />;
 }
-
 
 function MessageContent({ content, isDarkMode }: { content: string; isDarkMode: boolean }) {
   void isDarkMode;
   return <div className="raw-message-content">{content}</div>;
+}
+
+function MarkdownMessageContent({
+  content,
+  events,
+  onChoiceSelect,
+  answeredInputRequestIds
+}: {
+  content: string;
+  events?: ChatDisplayEvent[];
+  onChoiceSelect?: (requestId: string, choice: string) => void;
+  answeredInputRequestIds?: ReadonlySet<string>;
+}) {
+  return (
+    <ContentRenderer
+      content={content}
+      events={events}
+      onChoiceSelect={onChoiceSelect}
+      answeredInputRequestIds={answeredInputRequestIds}
+    />
+  );
 }
 
 export function App() {
@@ -300,90 +336,25 @@ export function App() {
     {
       id: "mock-1",
       role: "system",
-      content: "Welcome to the GitHub Copilot Agent. How can I assist you today?"
+      content: "测试显示数据"
     },
     {
       id: "mock-2",
-      role: "user",
-      content: "你可以用 React 写一个简单的计步器吗？"
-    },
-    {
-      id: "mock-3",
       role: "assistant",
-      content: `没问题，这里有一个用 React 编写的简单计步器 (Counter) 组件：
-
-\`\`\`tsx
-import React, { useState } from 'react';
-
-function Counter() {
-  const [count, setCount] = useState(0);
-
-  return (
-    <div style={{ padding: '20px', textAlign: 'center' }}>
-      <h2>Current Count: {count}</h2>
-      <button onClick={() => setCount(count - 1)}>-1</button>
-      <button onClick={() => setCount(0)} style={{ margin: '0 10px' }}>Reset</button>
-      <button onClick={() => setCount(count + 1)}>+1</button>
-    </div>
-  );
-}
-
-export default Counter;
-\`\`\`
-
-你可以把这段代码复制到你的 React 项目中使用。为了方便后续沟通，如果你还需要增加额外的特性（比如双向数据绑定或者持久化），随时告诉我！`
-    },
-    {
-      id: "mock-4",
-      role: "user",
-      content: "谢谢！如果要加一个好看一点的 CSS 样式呢？"
-    },
-    {
-      id: "mock-5",
-      role: "assistant",
-      content: `当然，这里为你提供一个增加了一些基础样式的版本。比如圆角、阴影和过渡动画：
-
-\`\`\`css
-/* styles.css */
-.counter-container {
-  max-width: 300px;
-  margin: 40px auto;
-  padding: 30px;
-  border-radius: 16px;
-  background: white;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-  text-align: center;
-  font-family: sans-serif;
-  transition: transform 0.3s ease;
-}
-
-.counter-container:hover {
-  transform: translateY(-5px);
-}
-
-.counter-button {
-  background-color: #2563eb;
-  color: white;
-  border: none;
-  padding: 10px 16px;
-  margin: 0 6px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 16px;
-  transition: background-color 0.2s;
-}
-
-.counter-button:hover {
-  background-color: #1d4ed8;
-}
-\`\`\`
-
-这样样式看起来会更现代化一些。试试看吧！`
+      content: "",
+      status: "streaming"
     }
   ]);
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [pendingInputRequest, setPendingInputRequest] = useState<InputRequest | undefined>();
+  const [answeredInputRequestIds, setAnsweredInputRequestIds] = useState<Set<string>>(() => new Set());
+  const [tokenUsage, setTokenUsage] = useState<TokenUsage>({
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0
+  });
   const [isFlashing, setIsFlashing] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [isFocused, setIsFocused] = useState(false);
@@ -398,21 +369,45 @@ export default Counter;
     }
     return false;
   });
-  const [displacementMapUrl, setDisplacementMapUrl] = useState("");
-  const [composerSize, setComposerSize] = useState({ width: 0, height: 0 });
-
-  useEffect(() => {
-    return () => {
-      if (displacementMapUrl && displacementMapUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(displacementMapUrl);
-      }
-    };
-  }, [displacementMapUrl]);
-
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const userMessageBodyRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const activeRequestControllerRef = useRef<AbortController | undefined>();
+  const activeAssistantIdRef = useRef<string | undefined>();
+  const manualStopRequestedRef = useRef(false);
+  const countedUsageEventsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    let nextEventIndex = 0;
+
+    const intervalId = window.setInterval(() => {
+      const nextEvent = MOCK_STREAMING_ASSISTANT_EVENTS[nextEventIndex];
+      const isLastEvent = nextEventIndex === MOCK_STREAMING_ASSISTANT_EVENTS.length - 1;
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === MOCK_STREAMING_ASSISTANT_MESSAGE_ID
+            ? {
+                ...message,
+                content: nextEvent.eventType === "assistant.message"
+                  ? `${message.content}${typeof nextEvent.data.content === "string" ? nextEvent.data.content : ""}`
+                  : message.content,
+                events: [...(message.events ?? []), nextEvent],
+                status: isLastEvent ? "done" : "streaming"
+              }
+            : message
+        )
+      );
+
+      nextEventIndex += 1;
+      if (nextEventIndex >= MOCK_STREAMING_ASSISTANT_EVENTS.length) {
+        window.clearInterval(intervalId);
+      }
+    }, MOCK_STREAMING_LINE_DELAY_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -460,6 +455,13 @@ export default Counter;
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
+
+  useEffect(() => {
+    document.body.classList.toggle("request-active", isSending);
+    return () => {
+      document.body.classList.remove("request-active");
+    };
+  }, [isSending]);
 
   useLayoutEffect(() => {
     const textarea = inputRef.current;
@@ -569,8 +571,47 @@ export default Counter;
     return `${agentInfo.agent.provider} · ${agentInfo.agent.model} · ${agentInfo.agent.auth.mode}`;
   }, [agentInfo]);
 
+  const tokenUsageText = useMemo(() => formatTokenUsage(tokenUsage), [tokenUsage]);
+
+  async function handleStopRequest() {
+    if (!isSending) {
+      return;
+    }
+
+    manualStopRequestedRef.current = true;
+    activeRequestControllerRef.current?.abort();
+    setIsSending(false);
+    setError(undefined);
+
+    const assistantId = activeAssistantIdRef.current;
+    if (assistantId) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                content: message.content || "已停止。",
+                status: "done"
+              }
+            : message
+        )
+      );
+    }
+
+    try {
+      await stopSession(sessionId);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to stop the session.");
+    } finally {
+      activeRequestControllerRef.current = undefined;
+      activeAssistantIdRef.current = undefined;
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
     const prompt = draft.trim();
     if (!prompt) {
       setIsFlashing(true);
@@ -586,12 +627,9 @@ export default Counter;
       setError(undefined);
       setDraft("");
       try {
-        await answerUserInput(sessionId, pendingInputRequest.requestId, prompt);
-        setMessages((current) => [
-          ...current,
-          { id: crypto.randomUUID(), role: "user", content: prompt, isNew: true }
-        ]);
+        await answerUserInput(sessionId, pendingInputRequest.requestId, prompt, true);
         setPendingInputRequest(undefined);
+        setAnsweredInputRequestIds((current) => new Set(current).add(pendingInputRequest.requestId));
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Unable to answer Copilot.");
       }
@@ -599,10 +637,15 @@ export default Counter;
     }
 
     if (isSending) {
+      await handleStopRequest();
       return;
     }
 
     const assistantId = crypto.randomUUID();
+    const requestController = new AbortController();
+    manualStopRequestedRef.current = false;
+    activeRequestControllerRef.current = requestController;
+    activeAssistantIdRef.current = assistantId;
     setError(undefined);
     setDraft("");
     setIsSending(true);
@@ -612,8 +655,10 @@ export default Counter;
       { id: assistantId, role: "assistant", content: "", status: "streaming", isNew: true }
     ]);
 
+    const streamedAssistantMessageIds = new Set<string>();
+
     try {
-      for await (const event of sendMessage(sessionId, prompt)) {
+      for await (const event of sendMessage(sessionId, prompt, requestController.signal)) {
         if (event.type === "session") {
           setSessionId(event.sessionId);
         }
@@ -626,13 +671,74 @@ export default Counter;
           );
         }
 
+        if (event.type === "assistant_event") {
+          updateTokenUsageFromEvent(event.eventType, event.data);
+          if (event.eventType === "assistant.usage") {
+            continue;
+          }
+
+          let visibleText = "";
+          if (event.eventType === "assistant.message_delta") {
+            visibleText = typeof event.data.deltaContent === "string" ? event.data.deltaContent : "";
+            const messageId = typeof event.data.messageId === "string" ? event.data.messageId : undefined;
+            if (messageId) {
+              streamedAssistantMessageIds.add(messageId);
+            }
+          } else if (event.eventType === "assistant.message") {
+            const messageId = typeof event.data.messageId === "string" ? event.data.messageId : undefined;
+            if (!messageId || !streamedAssistantMessageIds.has(messageId)) {
+              visibleText = typeof event.data.content === "string" ? event.data.content : "";
+            }
+          }
+
+          appendDisplayEvent(assistantId, {
+            type: "assistant_event",
+            eventType: event.eventType,
+            data: event.data
+          }, visibleText);
+        }
+
+        if (event.type === "copilot_event") {
+          updateTokenUsageFromEvent(event.eventType, event.data);
+          if (event.eventType === "assistant.usage") {
+            continue;
+          }
+
+          let visibleText = "";
+          if (event.eventType === "assistant.message_delta") {
+            visibleText = typeof event.data.deltaContent === "string" ? event.data.deltaContent : "";
+            const messageId = typeof event.data.messageId === "string" ? event.data.messageId : undefined;
+            if (messageId) {
+              streamedAssistantMessageIds.add(messageId);
+            }
+          } else if (event.eventType === "assistant.message") {
+            const messageId = typeof event.data.messageId === "string" ? event.data.messageId : undefined;
+            if (!messageId || !streamedAssistantMessageIds.has(messageId)) {
+              visibleText = typeof event.data.content === "string" ? event.data.content : "";
+            }
+          }
+
+          appendDisplayEvent(assistantId, {
+            type: displayEventTypeFor(event.eventType),
+            eventType: event.eventType,
+            data: event.data
+          }, visibleText);
+        }
+
+        if (event.type === "session_event") {
+          appendDisplayEvent(assistantId, {
+            type: "session_event",
+            eventType: event.eventType,
+            data: event.data
+          });
+        }
+
         if (event.type === "tool") {
-          const toolLine = `[${event.eventType}] ${JSON.stringify(event.data)}\n`;
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === assistantId ? { ...message, content: message.content + toolLine } : message
-            )
-          );
+          appendDisplayEvent(assistantId, {
+            type: "tool",
+            eventType: event.eventType,
+            data: event.data
+          });
         }
 
         if (event.type === "input_request") {
@@ -644,6 +750,11 @@ export default Counter;
           };
           setPendingInputRequest(request);
           appendInputRequest(assistantId, request);
+          appendDisplayEvent(assistantId, {
+            type: "input_request",
+            eventType: "input_request",
+            data: request
+          });
         }
 
         if (event.type === "error") {
@@ -661,6 +772,21 @@ export default Counter;
         }
       }
     } catch (caught) {
+      if (manualStopRequestedRef.current || requestController.signal.aborted) {
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === assistantId
+              ? {
+                  ...item,
+                  content: item.content || "已停止。",
+                  status: "done"
+                }
+              : item
+          )
+        );
+        return;
+      }
+
       const message = caught instanceof Error ? caught.message : "Unable to send message.";
       setError(message);
       setMessages((current) =>
@@ -668,6 +794,12 @@ export default Counter;
       );
     } finally {
       setIsSending(false);
+      if (activeRequestControllerRef.current === requestController) {
+        activeRequestControllerRef.current = undefined;
+      }
+      if (activeAssistantIdRef.current === assistantId) {
+        activeAssistantIdRef.current = undefined;
+      }
       // Ensure input is focused after message is sent
       setTimeout(() => inputRef.current?.focus(), 0);
     }
@@ -681,6 +813,76 @@ export default Counter;
           : message
       )
     );
+  }
+
+  function appendDisplayEvent(assistantId: string, displayEvent: ChatDisplayEvent, visibleText = "") {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === assistantId
+          ? {
+              ...message,
+              content: visibleText ? message.content + visibleText : message.content,
+              events: [...(message.events ?? []), displayEvent]
+            }
+          : message
+      )
+    );
+  }
+
+  function updateTokenUsageFromEvent(eventType: string, data: Record<string, unknown>) {
+    if (eventType !== "assistant.usage") {
+      return;
+    }
+
+    const usageKey = usageEventKey(data);
+    if (usageKey) {
+      if (countedUsageEventsRef.current.has(usageKey)) {
+        return;
+      }
+      countedUsageEventsRef.current.add(usageKey);
+    }
+
+    const inputTokens = numberValue(data.inputTokens);
+    const outputTokens = numberValue(data.outputTokens);
+    const cacheReadTokens = numberValue(data.cacheReadTokens);
+    const cacheWriteTokens = numberValue(data.cacheWriteTokens);
+
+    if (!inputTokens && !outputTokens && !cacheReadTokens && !cacheWriteTokens) {
+      return;
+    }
+
+    setTokenUsage((current) => ({
+      inputTokens: current.inputTokens + inputTokens,
+      outputTokens: current.outputTokens + outputTokens,
+      cacheReadTokens: current.cacheReadTokens + cacheReadTokens,
+      cacheWriteTokens: current.cacheWriteTokens + cacheWriteTokens
+    }));
+  }
+
+  async function handleChoiceSelect(requestId: string, choice: string) {
+    if (!sessionId) {
+      setError("No active session for this answer.");
+      return;
+    }
+
+    if (answeredInputRequestIds.has(requestId)) {
+      return;
+    }
+
+    setError(undefined);
+    setAnsweredInputRequestIds((current) => new Set(current).add(requestId));
+
+    try {
+      await answerUserInput(sessionId, requestId, choice, false);
+      setPendingInputRequest((current) => (current?.requestId === requestId ? undefined : current));
+    } catch (caught) {
+      setAnsweredInputRequestIds((current) => {
+        const next = new Set(current);
+        next.delete(requestId);
+        return next;
+      });
+      setError(caught instanceof Error ? caught.message : "Unable to answer Copilot.");
+    }
   }
 
   const handleCopy = (content: string, messageId: string) => {
@@ -699,41 +901,19 @@ export default Counter;
 
   return (
     <div className="app-container">
-      <svg aria-hidden="true" className="glass-filter-defs" focusable="false">
-        <filter id="glass-edge-distortion" x="-50%" y="-50%" width="200%" height="200%" colorInterpolationFilters="sRGB">
-          {displacementMapUrl && composerSize.width > 0 ? (
-            <feImage 
-              href={displacementMapUrl} 
-              result="edgeNoise" 
-              preserveAspectRatio="none" 
-              x="0" 
-              y="0" 
-              width={composerSize.width} 
-              height={composerSize.height} 
-              crossOrigin="anonymous"
-            />
-          ) : (
-            <feTurbulence baseFrequency="0.012 0.036" numOctaves="1" result="edgeNoise" seed="12" type="fractalNoise" />
-          )}
-          
-          {/* 提取 R, G, B 三个通道分别进行位移，创造色散边缘透镜效果 */}
-          <feColorMatrix type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" in="SourceGraphic" result="redSrc"/>
-          <feColorMatrix type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" in="SourceGraphic" result="greenSrc"/>
-          <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" in="SourceGraphic" result="blueSrc"/>
-
-          {/* 三个通道赋予略微不同的 scale，模仿不同波长光线的折射率差 */}
-           {/* 放大 scale 值：SVG位移的最大偏移量是 scale * 0.5。要想拉伸完整跨越 24px 边框，scale 至少需要是 48 */}
-          <feDisplacementMap in="redSrc" in2="edgeNoise" scale="64" xChannelSelector="R" yChannelSelector="G" result="redDisp"/>
-          <feDisplacementMap in="greenSrc" in2="edgeNoise" scale="60" xChannelSelector="R" yChannelSelector="G" result="greenDisp"/>
-          <feDisplacementMap in="blueSrc" in2="edgeNoise" scale="56" xChannelSelector="R" yChannelSelector="G" result="blueDisp"/>
-
-          {/* 将三通道利用 Screen Blend 重新合并成全彩画面 */}
-          <feBlend mode="screen" in="redDisp" in2="greenDisp" result="rgDisp"/>
-          <feBlend mode="screen" in="rgDisp" in2="blueDisp" result="rgbDisp"/>
-        </filter>
-      </svg>
+      <DotPulseBackdrop isActive={isSending} isDarkMode={isDarkMode} />
       <main className="shell">
         <header className="shell-header" aria-label="Chat controls">
+          <div className="header-agent-info">
+            <div className="header-agent-name">{agentInfo?.app.name ?? "Agent"}</div>
+            <div className="header-agent-meta">
+              <span>{subtitle}</span>
+              {(agentInfo?.agent.skillDirectories?.length ?? 0) > 0 ? (
+                <span>{agentInfo?.agent.skillDirectories?.length} Skills</span>
+              ) : null}
+              {agentInfo?.agent.instructions ? <span>Instructions</span> : null}
+            </div>
+          </div>
           <label className="theme-toggle-switch" aria-label="Toggle dark mode">
             <input 
               type="checkbox" 
@@ -766,7 +946,7 @@ export default Counter;
             >
               <div className="message-inner">
                 <div className="message-header">
-                  <div className="message-meta">{message.role === 'assistant' && (agentInfo?.app.name ?? 'Agent')}</div>
+                  <div className="message-meta"></div>
                 </div>
                 {message.role === "user" ? (
                   <div
@@ -793,7 +973,14 @@ export default Counter;
                     ) : null}
                   </div>
                 ) : (
-                  message.content || null
+                  message.content || message.events?.length ? (
+                    <MarkdownMessageContent
+                      content={message.content}
+                      events={message.events}
+                      onChoiceSelect={handleChoiceSelect}
+                      answeredInputRequestIds={answeredInputRequestIds}
+                    />
+                  ) : null
                 )}
                 {message.content && (
                   <button 
@@ -813,11 +1000,14 @@ export default Counter;
       </section>
 
       <div className="composer-container">
-        <form
+        <LiquidGlassInput
           className={`composer ${isFlashing ? "flash" : ""} ${isFocused ? "focused" : ""}`}
+          hasText={draft.length > 0}
+          isActive={!isSending || Boolean(pendingInputRequest)}
+          isDarkMode={isDarkMode}
+          isEditable={isFocused && (!isSending || Boolean(pendingInputRequest))}
           onSubmit={handleSubmit}
         >
-          <LiquidGlassSurface hasText={draft.length > 0} isActive={isFocused || isSending} isDarkMode={isDarkMode} onDisplacementUpdate={setDisplacementMapUrl} onSizeUpdate={setComposerSize} />
           {error ? <div className="error-banner">{error}</div> : null}
           <div className="composer-inner">
             <div aria-hidden="true" className="composer-mirror" ref={mirrorRef} />
@@ -861,25 +1051,21 @@ export default Counter;
                   Waiting for answer
                 </span>
               ) : null}
-              <span className="composer-hint" title="Subtitle Info">
-                {subtitle}
+              <span className="composer-hint composer-token-usage" title="Session token usage">
+                {tokenUsageText}
               </span>
-              {(agentInfo?.agent.skillDirectories?.length ?? 0) > 0 && (
-                <span className="composer-hint" title="Skills Enabled">
-                  {agentInfo?.agent.skillDirectories?.length} Skills
-                </span>
-              )}
-              {agentInfo?.agent.instructions && (
-                <span className="composer-hint" title="Instructions Applied">
-                  Instructions
-                </span>
-              )}
             </div>
-            <button type="submit" aria-label="Send message" className="send-button">
-              <SendIcon />
+            <button
+              type={isSending && !pendingInputRequest ? "button" : "submit"}
+              aria-label={isSending && !pendingInputRequest ? "Stop response" : "Send message"}
+              className={`send-button ${isSending && !pendingInputRequest ? "stop-button" : ""}`}
+              onClick={isSending && !pendingInputRequest ? handleStopRequest : undefined}
+              title={isSending && !pendingInputRequest ? "停止" : "发送"}
+            >
+              {isSending && !pendingInputRequest ? <StopIcon /> : <SendIcon />}
             </button>
           </div>
-        </form>
+        </LiquidGlassInput>
       </div>
       </main>
     </div>
@@ -897,6 +1083,32 @@ function ThinkingTitle() {
       </span>
     </div>
   );
+}
+
+function formatTokenUsage(usage: TokenUsage) {
+  const total = usage.inputTokens + usage.outputTokens;
+  const cacheTotal = usage.cacheReadTokens + usage.cacheWriteTokens;
+  const base = `Tokens ${formatCompactNumber(total)} · In ${formatCompactNumber(usage.inputTokens)} · Out ${formatCompactNumber(usage.outputTokens)}`;
+
+  return cacheTotal > 0 ? `${base} · Cache ${formatCompactNumber(cacheTotal)}` : base;
+}
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat("en", {
+    maximumFractionDigits: value >= 1000 ? 1 : 0,
+    notation: value >= 1000 ? "compact" : "standard"
+  }).format(value);
+}
+
+function numberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function usageEventKey(data: Record<string, unknown>) {
+  return [data.apiCallId, data.providerCallId]
+    .map((value) => (typeof value === "string" && value.trim() ? value : undefined))
+    .filter(Boolean)
+    .join(":") || undefined;
 }
 
 function AssistantInputRequests({ requests }: { requests: InputRequest[] }) {
@@ -974,6 +1186,14 @@ function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M3.4 20.4 21 12 3.4 3.6 5 10.5l8.5 1.5L5 13.5l-1.6 6.9z" />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="5" y="5" width="14" height="14" rx="2" />
     </svg>
   );
 }

@@ -51,13 +51,33 @@ export async function* sendMessage(
   }
 }
 
-export async function answerUserInput(sessionId: string, requestId: string, answer: string): Promise<void> {
+export async function answerUserInput(
+  sessionId: string,
+  requestId: string,
+  answer: string,
+  wasFreeform = true
+): Promise<void> {
   const response = await fetch("/api/user-input", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ sessionId, requestId, answer })
+    body: JSON.stringify({ sessionId, requestId, answer, wasFreeform })
+  });
+
+  if (!response.ok) {
+    const error = await safeError(response);
+    throw new Error(error);
+  }
+}
+
+export async function stopSession(sessionId: string | undefined): Promise<void> {
+  const response = await fetch("/api/stop", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sessionId })
   });
 
   if (!response.ok) {

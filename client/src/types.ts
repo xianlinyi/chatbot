@@ -42,6 +42,13 @@ export type ChatMessage = {
   status?: "streaming" | "done" | "error";
   isNew?: boolean;
   inputRequests?: InputRequest[];
+  events?: ChatDisplayEvent[];
+};
+
+export type ChatDisplayEvent = {
+  type: "assistant_event" | "session_event" | "tool" | "input_request";
+  eventType: string;
+  data: Record<string, unknown>;
 };
 
 export type InputRequest = {
@@ -66,6 +73,21 @@ export type StreamEvent =
   | {
       type: "delta";
       content: string;
+    }
+  | {
+      type: "copilot_event";
+      eventType: string;
+      data: Record<string, unknown>;
+    }
+  | {
+      type: "assistant_event";
+      eventType: string;
+      data: Record<string, unknown>;
+    }
+  | {
+      type: "session_event";
+      eventType: string;
+      data: Record<string, unknown>;
     }
   | {
       type: "tool";

@@ -1,19 +1,14 @@
 import { nanoid } from "nanoid";
 import type { AppConfig } from "../config/types.js";
 import type { AgentInfo, AgentProvider, AgentSession, AgentStreamEvent } from "./types.js";
-import {
-  extractAssistantDelta,
-  extractAssistantMessageContent,
-  isCopilotToolEvent,
-  type CopilotEvent
-} from "./copilotResponseParser.js";
+import type { CopilotEvent } from "./copilotResponseParser.js";
 
 type CopilotSession = {
   on: {
     (eventType: string, handler: (event: CopilotEvent) => void): (() => void) | void;
     (handler: (event: CopilotEvent) => void): (() => void) | void;
   };
-  sendAndWait: (input: { prompt: string; mode?: "enqueue" | "immediate" }) => Promise<unknown>;
+  sendAndWait: (input: { prompt: string; mode?: "enqueue" | "immediate" }, timeout?: number) => Promise<unknown>;
   disconnect?: () => Promise<void>;
 };
 
@@ -31,7 +26,6 @@ type UserInputRequest = {
 };
 
 type MessageRunStats = {
-  assistantText: string;
   toolEventCount: number;
 };
 
@@ -46,6 +40,8 @@ type PendingUserInput = {
 };
 
 type AsyncQueue<T> = AsyncIterable<T> & { push: (item: T) => void; end: () => void };
+
+const RESPONSE_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 
 export class GithubCopilotAgentProvider implements AgentProvider {
   private readonly sessions = new Map<string, CopilotSession>();
@@ -134,43 +130,23 @@ export class GithubCopilotAgentProvider implements AgentProvider {
 
     const queue = createAsyncQueue<AgentStreamEvent>();
     const runStats: MessageRunStats = {
-      assistantText: "",
       toolEventCount: 0
     };
     this.activeRuns.set(sessionId, { queue, stats: runStats });
     const unsubscribeEvents = session.on((event) => {
-      if (event.type === "assistant.message") {
-        const content = extractAssistantMessageContent(event);
-        if (content && !runStats.assistantText) {
-          queue.push({ type: "delta", content });
-        }
-        runStats.assistantText += content;
-        this.log("Received assistant message", {
-          sessionId,
-          contentLength: content.length
-        });
+      if (!event.type) {
         return;
       }
 
-      if (isCopilotToolEvent(event)) {
+      if (event.type.startsWith("tool.")) {
         runStats.toolEventCount += 1;
-        this.log("Received tool event", {
-          sessionId,
-          eventType: event.type
-        });
-        queue.push({ type: "tool", eventType: event.type ?? "", data: event.data ?? {} });
       }
-    });
-    const unsubscribeDelta = session.on("assistant.message_delta", (event) => {
-      const content = extractAssistantDelta(event);
-      if (content) {
-        runStats.assistantText += content;
-        this.log("Received assistant delta", {
-          sessionId,
-          contentLength: content.length
-        });
-        queue.push({ type: "delta", content });
-      }
+
+      this.log("Received Copilot event", {
+        sessionId,
+        eventType: event.type
+      });
+      queue.push({ type: "copilot_event", eventType: event.type, data: event.data ?? {} });
     });
     const unsubscribeError = session.on("error", (event) => {
       const message = event.data?.message ?? "Agent stream failed.";
@@ -184,12 +160,11 @@ export class GithubCopilotAgentProvider implements AgentProvider {
     });
 
     void session
-      .sendAndWait({ prompt })
+      .sendAndWait({ prompt }, RESPONSE_IDLE_TIMEOUT_MS)
       .then(() => {
         this.log("Copilot session completed message", {
           sessionId,
-          toolEventCount: runStats.toolEventCount,
-          assistantTextLength: runStats.assistantText.length
+          toolEventCount: runStats.toolEventCount
         });
         queue.push({ type: "done" });
         queue.end();
@@ -205,7 +180,6 @@ export class GithubCopilotAgentProvider implements AgentProvider {
     } finally {
       this.activeRuns.delete(sessionId);
       unsubscribeEvents?.();
-      unsubscribeDelta?.();
       unsubscribeError?.();
     }
   }
@@ -222,14 +196,19 @@ export class GithubCopilotAgentProvider implements AgentProvider {
     await session?.disconnect?.();
   }
 
-  async respondToUserInput(sessionId: string, requestId: string, answer: string): Promise<boolean> {
+  async respondToUserInput(
+    sessionId: string,
+    requestId: string,
+    answer: string,
+    wasFreeform: boolean
+  ): Promise<boolean> {
     const pending = this.pendingUserInputs.get(requestId);
     if (!pending || pending.sessionId !== sessionId) {
       return false;
     }
 
     this.pendingUserInputs.delete(requestId);
-    pending.resolve({ answer, wasFreeform: true });
+    pending.resolve({ answer, wasFreeform });
     return true;
   }
 

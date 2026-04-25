@@ -36,6 +36,9 @@ export type AgentSession = {
 export type AgentStreamEvent =
   | { type: "session"; sessionId: string; created: boolean }
   | { type: "delta"; content: string }
+  | { type: "copilot_event"; eventType: string; data: Record<string, unknown> }
+  | { type: "assistant_event"; eventType: string; data: Record<string, unknown> }
+  | { type: "session_event"; eventType: string; data: Record<string, unknown> }
   | { type: "tool"; eventType: string; data: Record<string, unknown> }
   | {
       type: "input_request";
@@ -51,7 +54,7 @@ export interface AgentProvider {
   getInfo(): AgentInfo;
   createSession(): Promise<AgentSession>;
   sendMessageStream(sessionId: string, prompt: string): AsyncIterable<AgentStreamEvent>;
-  respondToUserInput(sessionId: string, requestId: string, answer: string): Promise<boolean>;
+  respondToUserInput(sessionId: string, requestId: string, answer: string, wasFreeform: boolean): Promise<boolean>;
   closeSession(sessionId: string): Promise<void>;
   stop(): Promise<void>;
 }

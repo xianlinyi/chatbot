@@ -67,4 +67,26 @@ describe("API routes", () => {
 
     await app.close();
   });
+
+  it("stops an active session", async () => {
+    const provider = new MockAgentProvider();
+    const app = await buildApp({ config: testConfig, provider });
+    await app.inject({
+      method: "POST",
+      url: "/api/messages",
+      payload: { message: "hello" }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/stop",
+      payload: { sessionId: "session-1" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    expect(provider.closed.has("session-1")).toBe(true);
+
+    await app.close();
+  });
 });

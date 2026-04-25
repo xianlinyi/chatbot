@@ -83,7 +83,12 @@ export class MockAgentProvider implements AgentProvider {
     yield { type: "done" };
   }
 
-  async respondToUserInput(sessionId: string, requestId: string, answer: string): Promise<boolean> {
+  async respondToUserInput(
+    sessionId: string,
+    requestId: string,
+    answer: string,
+    _wasFreeform: boolean
+  ): Promise<boolean> {
     return sessionId === "session-1" && requestId === "request-1" && Boolean(answer);
   }
 

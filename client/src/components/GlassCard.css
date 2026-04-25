@@ -1,0 +1,51 @@
+.glass-card-container {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.glass-card-scroll-area {
+  overflow-y: auto;
+  flex-grow: 1;
+  padding: 4px 20px 8px;
+  text-align: left;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, 0.28) transparent;
+}
+
+/* Chrome/Safari 自定义滚动条 */
+.glass-card-scroll-area::-webkit-scrollbar {
+  width: 6px;
+}
+.glass-card-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.glass-card-scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.28);
+  border-radius: 4px;
+}
+
+/* 上下边缘渐变的 Mask */
+.glass-card-mask-bottom {
+  mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 85%, transparent 100%);
+}
+
+.glass-card-mask-top {
+  mask-image: linear-gradient(to bottom, transparent 0%, black 15%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%);
+}
+
+.glass-card-mask-both {
+  mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+}
+
+.glass-card-mask-none {
+  mask-image: none;
+  -webkit-mask-image: none;
+}

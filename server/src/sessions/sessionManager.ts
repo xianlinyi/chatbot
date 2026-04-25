@@ -12,7 +12,7 @@ export class SessionManager {
 
   constructor(
     private readonly provider: AgentProvider,
-    private readonly idleTtlMs = 30 * 60 * 1000
+    private readonly idleTtlMs = 10 * 60 * 1000
   ) {}
 
   async create(): Promise<ChatSessionRecord> {
@@ -45,13 +45,18 @@ export class SessionManager {
     return this.provider.sendMessageStream(sessionId, prompt);
   }
 
-  async respondToUserInput(sessionId: string, requestId: string, answer: string): Promise<boolean> {
+  async respondToUserInput(
+    sessionId: string,
+    requestId: string,
+    answer: string,
+    wasFreeform: boolean
+  ): Promise<boolean> {
     const session = this.get(sessionId);
     if (!session) {
       return false;
     }
 
-    return this.provider.respondToUserInput(sessionId, requestId, answer);
+    return this.provider.respondToUserInput(sessionId, requestId, answer, wasFreeform);
   }
 
   async delete(sessionId: string): Promise<boolean> {

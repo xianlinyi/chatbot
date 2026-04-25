@@ -1,0 +1,170 @@
+.tool-execution-block {
+  margin: 12px 0;
+  padding: 8px 0;
+  position: relative; /* 为圆点提供定位基准 */
+  padding-left: 28px; /* 向右推一点内容，给转圈腾出足够充裕的空间，不挤占 label 视觉 */
+}
+
+.tool-execution-marker {
+  position: absolute;
+  left: -2px;
+  top: 13px;
+  width: 12px;
+  height: 12px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.tool-execution-dot {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #a1a1aa;
+  transition: background-color 0.3s ease;
+}
+
+html.dark .tool-execution-dot {
+  background: #71717a;
+}
+
+.tool-execution-ring {
+  position: absolute;
+  inset: 0;
+  width: 12px;
+  height: 12px;
+  overflow: visible;
+  transform-origin: center;
+}
+
+.tool-execution-ring circle {
+  fill: none;
+  stroke: #3f3f46;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-dasharray: 46 100;
+  stroke-dashoffset: 0;
+  opacity: 0;
+}
+
+/* 活跃状态下的圆点外侧绕圈动画紧贴圆点 */
+.tool-execution-block.active .tool-execution-ring,
+.tool-execution-block.retiring .tool-execution-ring {
+  animation: tool-dot-spin 1s linear infinite;
+}
+
+.tool-execution-block.active .tool-execution-ring circle,
+.tool-execution-block.retiring .tool-execution-ring circle {
+  opacity: 1;
+}
+
+.tool-execution-block.retiring .tool-execution-ring circle {
+  animation: tool-ring-retire-stroke 950ms linear forwards;
+}
+
+html.dark .tool-execution-ring circle {
+  stroke: #d4d4d8;
+}
+
+@keyframes tool-dot-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes tool-ring-retire-stroke {
+  0% {
+    stroke-dasharray: 46 100;
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dasharray: 0 100;
+    stroke-dashoffset: -46;
+  }
+}
+
+html.dark .tool-execution-block {
+}
+
+.tool-execution-block.error {
+}
+
+.tool-execution-block.error .status-label {
+  color: #ff4d4f;
+}
+
+.tool-execution-description {
+  font-size: 12px;
+  color: #666;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+html.dark .tool-execution-description {
+  color: #aaa;
+}
+
+.tool-execution-command {
+  margin: 0 !important;
+  font-size: 13px !important;
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  border-radius: 6px !important;
+  padding: 8px 12px !important;
+}
+
+html.dark .tool-execution-command {
+  background-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+.tool-execution-progress {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #52525b;
+  display: grid;
+  gap: 4px;
+}
+
+html.dark .tool-execution-progress {
+  color: #a1a1aa;
+}
+
+.tool-execution-details {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.tool-execution-details summary {
+  cursor: pointer;
+  color: #52525b;
+  user-select: none;
+}
+
+html.dark .tool-execution-details summary {
+  color: #d4d4d8;
+}
+
+.tool-execution-details pre {
+  margin: 6px 0 0 !important;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  border-radius: 6px !important;
+  padding: 8px 12px !important;
+}
+
+html.dark .tool-execution-details pre {
+  background-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+.tool-execution-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #ff4d4f;
+}
