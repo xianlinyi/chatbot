@@ -54,6 +54,7 @@ export interface AgentProvider {
   getInfo(): AgentInfo;
   createSession(): Promise<AgentSession>;
   sendMessageStream(sessionId: string, prompt: string): AsyncIterable<AgentStreamEvent>;
+  enqueuePrompt(sessionId: string, prompt: string): Promise<boolean>;
   respondToUserInput(sessionId: string, requestId: string, answer: string, wasFreeform: boolean): Promise<boolean>;
   closeSession(sessionId: string): Promise<void>;
   stop(): Promise<void>;

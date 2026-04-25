@@ -241,6 +241,71 @@ describe("ContentRenderer turn labels", () => {
     expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "production");
   });
 
+  it("hides a choice request card after the request is answered", () => {
+    const { container } = render(
+      <ContentRenderer
+        content=""
+        answeredInputRequestIds={new Set(["request-1"])}
+        events={[
+          { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 1 } },
+          {
+            type: "input_request",
+            eventType: "input_request",
+            data: {
+              requestId: "request-1",
+              question: "请选择部署环境",
+              choices: ["staging", "production"]
+            }
+          },
+          { type: "assistant_event", eventType: "assistant.turn_end", data: { turnId: 1 } }
+        ]}
+      />
+    );
+
+    expect(container.querySelector(".choice-request-card")).toBeNull();
+    expect(screen.queryByText("请选择")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "production" })).not.toBeInTheDocument();
+  });
+
+  it("merges adjacent completed turns that share the same inactive label", () => {
+    const { container } = render(
+      <ContentRenderer
+        content=""
+        events={[
+          { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 1 } },
+          {
+            type: "tool",
+            eventType: "tool.execution_start",
+            data: {
+              toolCallId: "call-1",
+              toolName: "bash",
+              arguments: { command: "npm test", description: "Run tests" }
+            }
+          },
+          { type: "tool", eventType: "tool.execution_complete", data: { toolCallId: "call-1", success: true } },
+          { type: "assistant_event", eventType: "assistant.turn_end", data: { turnId: 1 } },
+          { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 2 } },
+          {
+            type: "tool",
+            eventType: "tool.execution_start",
+            data: {
+              toolCallId: "call-2",
+              toolName: "bash",
+              arguments: { command: "npm run build", description: "Build app" }
+            }
+          },
+          { type: "tool", eventType: "tool.execution_complete", data: { toolCallId: "call-2", success: true } },
+          { type: "assistant_event", eventType: "assistant.turn_end", data: { turnId: 2 } }
+        ]}
+      />
+    );
+
+    expect(screen.getAllByText("请求工具")).toHaveLength(1);
+    expect(container.querySelectorAll(".assistant-turn")).toHaveLength(1);
+    expect(screen.getByText("Run tests")).toBeInTheDocument();
+    expect(screen.getByText("Build app")).toBeInTheDocument();
+  });
+
   it("renders skill tool calls inline as a pill instead of tool detail card", () => {
     const { container } = render(
       <ContentRenderer

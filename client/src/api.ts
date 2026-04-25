@@ -71,6 +71,21 @@ export async function answerUserInput(
   }
 }
 
+export async function enqueuePrompt(sessionId: string, message: string): Promise<void> {
+  const response = await fetch("/api/prompts", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sessionId, message })
+  });
+
+  if (!response.ok) {
+    const error = await safeError(response);
+    throw new Error(error);
+  }
+}
+
 export async function stopSession(sessionId: string | undefined): Promise<void> {
   const response = await fetch("/api/stop", {
     method: "POST",

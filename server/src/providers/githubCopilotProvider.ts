@@ -8,6 +8,7 @@ type CopilotSession = {
     (eventType: string, handler: (event: CopilotEvent) => void): (() => void) | void;
     (handler: (event: CopilotEvent) => void): (() => void) | void;
   };
+  send: (input: { prompt: string; mode?: "enqueue" | "immediate" }) => Promise<string>;
   sendAndWait: (input: { prompt: string; mode?: "enqueue" | "immediate" }, timeout?: number) => Promise<unknown>;
   disconnect?: () => Promise<void>;
 };
@@ -194,6 +195,22 @@ export class GithubCopilotAgentProvider implements AgentProvider {
       }
     }
     await session?.disconnect?.();
+  }
+
+  async enqueuePrompt(sessionId: string, prompt: string): Promise<boolean> {
+    const session = this.sessions.get(sessionId);
+    const run = this.activeRuns.get(sessionId);
+    if (!session || !run) {
+      return false;
+    }
+
+    this.log("Enqueuing prompt for active Copilot session", {
+      sessionId,
+      promptLength: prompt.length
+    });
+
+    await session.send({ prompt, mode: "enqueue" });
+    return true;
   }
 
   async respondToUserInput(

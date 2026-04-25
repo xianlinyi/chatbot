@@ -169,6 +169,76 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Send message" })).toBeInTheDocument();
   });
 
+  it("keeps the composer editable and enqueues prompts while a response is streaming", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/agent-info") {
+        return jsonResponse({
+          app: { name: "Test Chatbot", icon: "spark" },
+          agent: {
+            provider: "github-copilot",
+            model: "test-model",
+            auth: { mode: "token", tokenType: "fine-grained-pat", hasToken: true },
+            instructions: undefined,
+            customAgents: [],
+            skillDirectories: [],
+            disabledSkills: [],
+            mcpServers: {},
+            permissions: { mode: "allow-all" },
+            persistence: { enabled: false, scope: "memory-only" }
+          }
+        });
+      }
+
+      if (url === "/api/messages" && init?.method === "POST") {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode('event: session\ndata: {"type":"session","sessionId":"session-1","created":true}\n\n')
+              );
+            }
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" }
+          }
+        );
+      }
+
+      if (url === "/api/prompts" && init?.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("github-copilot · test-model · token");
+    const input = screen.getByLabelText("Message");
+    await userEvent.type(input, "Hi");
+    await userEvent.keyboard("{Enter}");
+    await screen.findByRole("button", { name: "Stop response" });
+
+    expect(input).not.toBeDisabled();
+    await userEvent.type(input, "Add tests");
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/prompts",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ sessionId: "session-1", message: "Add tests" })
+        })
+      )
+    );
+    expect(await screen.findByText("Add tests")).toBeInTheDocument();
+  });
+
   it("renders assistant responses as markdown", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

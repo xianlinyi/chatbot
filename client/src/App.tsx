@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { answerUserInput, fetchAgentInfo, sendMessage, stopSession } from "./api.js";
+import { answerUserInput, enqueuePrompt, fetchAgentInfo, sendMessage, stopSession } from "./api.js";
 import type { AgentInfoResponse, ChatDisplayEvent, ChatMessage, InputRequest } from "./types.js";
 import './components/ToolExecutionBlock.css';
 import { ContentRenderer } from "./components/ContentRenderer";
@@ -493,7 +493,7 @@ export function App() {
         left: marker.offsetLeft - textarea.scrollLeft,
         top: marker.offsetTop - textarea.scrollTop + Math.max(0, Math.floor((lineHeight - caretHeight) / 2)) - 3,
         height: caretHeight,
-        visible: isFocused && !isSending && selectionStart === selectionEnd
+        visible: isFocused && selectionStart === selectionEnd
       };
 
       setCaretState((current) => {
@@ -524,7 +524,7 @@ export function App() {
       textarea.removeEventListener("scroll", scheduleSync);
       window.removeEventListener("resize", scheduleSync);
     };
-  }, [draft, isFocused, isSending]);
+  }, [draft, isFocused]);
 
   useEffect(() => {
     const measureOverflow = () => {
@@ -637,7 +637,25 @@ export function App() {
     }
 
     if (isSending) {
-      await handleStopRequest();
+      if (!sessionId) {
+        setError("Agent session is still starting. Please try again in a moment.");
+        return;
+      }
+
+      setError(undefined);
+      setDraft("");
+      setMessages((current) => [
+        ...current,
+        { id: crypto.randomUUID(), role: "user", content: prompt, isNew: true }
+      ]);
+
+      try {
+        await enqueuePrompt(sessionId, prompt);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Unable to enqueue prompt.");
+      } finally {
+        setTimeout(() => inputRef.current?.focus(), 0);
+      }
       return;
     }
 
@@ -1005,7 +1023,7 @@ export function App() {
           hasText={draft.length > 0}
           isActive={!isSending || Boolean(pendingInputRequest)}
           isDarkMode={isDarkMode}
-          isEditable={isFocused && (!isSending || Boolean(pendingInputRequest))}
+          isEditable={isFocused}
           onSubmit={handleSubmit}
         >
           {error ? <div className="error-banner">{error}</div> : null}
@@ -1015,8 +1033,7 @@ export function App() {
               ref={inputRef}
               aria-label="Message"
               value={draft}
-              placeholder={pendingInputRequest ? "回答 Copilot 的问题" : shortcutHint}
-              disabled={isSending && !pendingInputRequest}
+              placeholder={pendingInputRequest ? "回答 Copilot 的问题" : isSending ? "继续补充指令" : shortcutHint}
               onChange={(event) => setDraft(event.target.value)}
               onSelect={() => {
                 inputRef.current?.dispatchEvent(new Event("scroll"));
@@ -1056,14 +1073,24 @@ export function App() {
               </span>
             </div>
             <button
-              type={isSending && !pendingInputRequest ? "button" : "submit"}
-              aria-label={isSending && !pendingInputRequest ? "Stop response" : "Send message"}
-              className={`send-button ${isSending && !pendingInputRequest ? "stop-button" : ""}`}
-              onClick={isSending && !pendingInputRequest ? handleStopRequest : undefined}
-              title={isSending && !pendingInputRequest ? "停止" : "发送"}
+              type="submit"
+              aria-label="Send message"
+              className="send-button"
+              title="发送"
             >
-              {isSending && !pendingInputRequest ? <StopIcon /> : <SendIcon />}
+              <SendIcon />
             </button>
+            {isSending && !pendingInputRequest ? (
+              <button
+                type="button"
+                aria-label="Stop response"
+                className="send-button stop-button"
+                onClick={handleStopRequest}
+                title="停止"
+              >
+                <StopIcon />
+              </button>
+            ) : null}
           </div>
         </LiquidGlassInput>
       </div>

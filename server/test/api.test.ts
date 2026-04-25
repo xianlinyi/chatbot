@@ -68,6 +68,28 @@ describe("API routes", () => {
     await app.close();
   });
 
+  it("enqueues prompts for an active agent session", async () => {
+    const provider = new MockAgentProvider();
+    const app = await buildApp({ config: testConfig, provider });
+    await app.inject({
+      method: "POST",
+      url: "/api/messages",
+      payload: { message: "hello" }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/prompts",
+      payload: { sessionId: "session-1", message: "keep going" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    expect(provider.prompts).toEqual([{ sessionId: "session-1", prompt: "keep going" }]);
+
+    await app.close();
+  });
+
   it("stops an active session", async () => {
     const provider = new MockAgentProvider();
     const app = await buildApp({ config: testConfig, provider });

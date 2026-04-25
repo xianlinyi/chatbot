@@ -52,7 +52,7 @@ export function ContentRenderer({
 }) {
   const nodes = useMemo(() => {
     if (events?.length) {
-      return parseDisplayEvents(events);
+      return mergeAdjacentInactiveTurns(parseDisplayEvents(events));
     }
 
     return content.trim() ? [{ type: "markdown", content } satisfies Block] : [];
@@ -77,6 +77,10 @@ export function ContentRenderer({
     }
 
     if (block.type === "choice") {
+      if (block.requestId && answeredInputRequestIds?.has(block.requestId)) {
+        return null;
+      }
+
       return (
         <ChoiceRequestCard
           key={`choice-${idx}`}
@@ -324,6 +328,45 @@ function parseDisplayEvents(events: ChatDisplayEvent[]): ParsedNode[] {
   return parentNodes;
 }
 
+function mergeAdjacentInactiveTurns(nodes: ParsedNode[]): ParsedNode[] {
+  const mergedNodes: ParsedNode[] = [];
+
+  for (const node of nodes) {
+    const previous = mergedNodes[mergedNodes.length - 1];
+    if (
+      node.type === "turn" &&
+      previous?.type === "turn" &&
+      canMergeInactiveTurns(previous, node)
+    ) {
+      previous.blocks.push(...node.blocks);
+      previous.hasToolRequests = previous.hasToolRequests || node.hasToolRequests;
+      previous.hasAskUserRequest = previous.hasAskUserRequest || node.hasAskUserRequest;
+      continue;
+    }
+
+    mergedNodes.push(node);
+  }
+
+  return mergedNodes;
+}
+
+function canMergeInactiveTurns(previous: Turn, next: Turn) {
+  return previous.isComplete && next.isComplete && turnStatusText(previous) === turnStatusText(next);
+}
+
+function turnStatusText(turn: Turn) {
+  const hasToolBlocks = turn.blocks.some((block) => block.type === "tool");
+  if (turn.hasAskUserRequest) {
+    return turn.isComplete ? "询问用户" : "正在询问用户";
+  }
+
+  if (hasToolBlocks) {
+    return "请求工具";
+  }
+
+  return turn.intent || (turn.isComplete ? "思考完成" : "正在思考");
+}
+
 function getMessageBlock(
   messageBlocks: Map<string, Block>,
   messageId: string,
@@ -554,96 +597,120 @@ function SkillPillCard({ name, description }: { name: string; description?: stri
   );
 }
 
-function ChoiceRequestStrings() {
-  const pathsRef = useRef<(SVGPathElement | null)[]>([]);
+function ChoiceRequestStrings({ parentRef }: { parentRef: React.RefObject<HTMLElement | null> }) {
+  const NUM_STRINGS = 1;
+  const gradientsRef = useRef<(SVGLinearGradientElement | null)[]>([]);
+  // Use a unique ID for gradients to avoid clipping conflicts if multiple cards exist
+  const uid = useMemo(() => Math.random().toString(36).slice(2, 8), []);
 
   useEffect(() => {
-    let frameId: number;
-    let time = 0;
-    const NUM_STRINGS = 13;
-    const NUM_POINTS = 50;
-
-    const strings = Array.from({ length: NUM_STRINGS }).map((_, idx) => {
-      let intensity = 1;
-      if (idx === 0) intensity = 0; // The static central main line
-      else if (idx <= 4) intensity = 0.15 + Math.random() * 0.15; // Smallest amplitude near middle
-      else if (idx <= 8) intensity = 0.4 + Math.random() * 0.3;  // Medium amplitude
-      else intensity = 0.8 + Math.random() * 0.4;                 // Largest amplitude
-
+    if (!parentRef.current) return;
+    
+    // Each line has its own animation state
+    const lines = Array.from({ length: NUM_STRINGS }).map(() => {
       return {
-        intensity,
-        components: Array.from({ length: 4 }, () => ({
-          freq: 0.8 + Math.random() * 2.2, // Slightly more dispersed multi-wave frequency
-          speed: (Math.random() - 0.5) * 0.08, // A bit faster time speed
-          phase: Math.random() * Math.PI * 2,
-          targetAmp: 0,
-          currentAmp: 0,
-          tension: 0.01 + Math.random() * 0.025 // Slightly more tension for snappiness
-        }))
+        speed: 0.3,
+        currentPct: Math.random() * 100,
+        targetPct: 50,
+        width: 30,
+        tension: 0.08
       };
     });
 
-    const animate = () => {
-      time += 1;
-      
-      strings.forEach((s, idx) => {
-        // Update components
-        s.components.forEach(c => {
-          if (idx === 0) return; // Skip updating for the static main string
-          
-          if (Math.random() > 0.95) {
-            c.targetAmp = (Math.random() - 0.5) * 45 * s.intensity; // Scaled potential amplitude 
-          }
-          c.currentAmp += (c.targetAmp - c.currentAmp) * c.tension;
-        });
+    let isHovered = false;
+    let mousePct = 50;
 
-        // Compute string path
-        let d = "M 0 40";
-        for (let i = 1; i <= NUM_POINTS; i++) {
-          const x = (i / NUM_POINTS) * 100;
-          let yDisp = 0;
-          s.components.forEach(c => {
-            yDisp += c.currentAmp * Math.sin(c.freq * (x / 100) * Math.PI * 2 + time * c.speed + c.phase);
-          });
-          
-          // Only rapidly constrain very close to endpoints (within 2%), leaving the rest of the string free to wave
-          const envelope = Math.min(1, Math.min(x, 100 - x) / 5);
-          
-          // Clip Y to stay within 2-78 range roughly
-          let y = 40 + yDisp * envelope * 0.35; // Lower multiplier to reduce height further
-          if (y < 2) y = 2;
-          if (y > 78) y = 78;
-          
-          d += ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!parentRef.current) return;
+      const rect = parentRef.current.getBoundingClientRect();
+      mousePct = ((e.clientX - rect.left) / rect.width) * 100;
+    };
+
+    const handleMouseEnter = () => { isHovered = true; };
+    const handleMouseLeave = () => { isHovered = false; };
+
+    const node = parentRef.current;
+    node.addEventListener('mousemove', handleMouseMove);
+    node.addEventListener('mouseenter', handleMouseEnter);
+    node.addEventListener('mouseleave', handleMouseLeave);
+
+    let frameId: number;
+    const animate = () => {
+      lines.forEach((line, i) => {
+        if (isHovered) {
+          // Converge to mouse position when hovered (sliding highlight to mouse location)
+          line.currentPct += (mousePct - line.currentPct) * line.tension; 
+        } else {
+          // Auto sliding when not hovered
+          line.currentPct += line.speed;
+          if (line.currentPct > 120 || line.currentPct < -20) {
+             line.speed *= -1;
+             line.currentPct += line.speed * 2;
+          }
         }
         
-        const pathBlock = pathsRef.current[idx];
-        if (pathBlock) {
-          pathBlock.setAttribute("d", d);
+        const grad = gradientsRef.current[i];
+        if (grad) {
+          grad.setAttribute("x1", `${line.currentPct - line.width / 2}%`);
+          grad.setAttribute("x2", `${line.currentPct + line.width / 2}%`);
         }
       });
       frameId = window.requestAnimationFrame(animate);
     };
     
-    animate();
-    
-    return () => window.cancelAnimationFrame(frameId);
-  }, []);
+    frameId = window.requestAnimationFrame(animate);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      node.removeEventListener('mousemove', handleMouseMove);
+      node.removeEventListener('mouseenter', handleMouseEnter);
+      node.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, [parentRef]);
 
   return (
-    <svg className="choice-request-strings" viewBox="0 0 100 80" preserveAspectRatio="none" aria-hidden="true">
-      {Array.from({ length: 13 }).map((_, i) => (
-        <path
-          key={i}
-          ref={(el) => { pathsRef.current[i] = el; }}
-          fill="none"
-          stroke="currentColor"
-          strokeLinejoin="round"
-          strokeWidth={i === 0 ? "0.15" : "1"} // Main string thinner
-          vectorEffect="non-scaling-stroke"
-          opacity={i === 0 ? "0.4" : "0.2"} // Main string slightly darker, others lighter
-        />
-      ))}
+    <svg className="choice-request-strings" viewBox="0 0 100 2" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        {Array.from({ length: NUM_STRINGS }).map((_, i) => {
+          return (
+            <linearGradient 
+              key={`grad-${i}`} 
+              id={`highlight-${uid}-${i}`} 
+              y1="0%" 
+              y2="0%" 
+              ref={(el) => { gradientsRef.current[i] = el; }}
+            >
+              <stop offset="0%" stopColor="currentColor" stopOpacity="0" />
+              <stop offset="50%" stopColor="currentColor" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+            </linearGradient>
+          );
+        })}
+      </defs>
+      
+      {Array.from({ length: NUM_STRINGS }).map((_, i) => {
+        const y = 1;
+        
+        return (
+          <g key={`line-${i}`}>
+            {/* Background static line */}
+            <line 
+              x1="0" y1={y} x2="100" y2={y} 
+              stroke="currentColor" 
+              strokeWidth="0.5" 
+              opacity="0.2" 
+              vectorEffect="non-scaling-stroke" 
+            />
+            {/* Dynamic Highlight layer */}
+            <line 
+              x1="0" y1={y} x2="100" y2={y} 
+              stroke={`url(#highlight-${uid}-${i})`} 
+              strokeWidth="1.5" 
+              vectorEffect="non-scaling-stroke" 
+            />
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -661,11 +728,12 @@ function ChoiceRequestCard({
   disabled?: boolean;
   onChoiceSelect?: (requestId: string, choice: string) => void;
 }) {
+  const cardRef = useRef<HTMLElement>(null);
   const isWaiting = !disabled;
 
   return (
-    <section className={`choice-request-card ${isWaiting ? "waiting" : ""}`}>
-      {isWaiting && <ChoiceRequestStrings />}
+    <section ref={cardRef} className={`choice-request-card ${isWaiting ? "waiting" : ""}`}>
+      {isWaiting && <ChoiceRequestStrings parentRef={cardRef} />}
       <div className="choice-request-prompt">请选择</div>
       {question ? (
         <div className="choice-request-question">
@@ -719,13 +787,7 @@ function TurnNode({
     );
   }
 
-  const statusText = turn.hasAskUserRequest
-    ? turn.isComplete
-      ? "询问用户"
-      : "正在询问用户"
-    : isSpecial
-      ? "请求工具"
-      : turn.intent || (turn.isComplete ? "思考完成" : "正在思考");
+  const statusText = turnStatusText(turn);
   const hasCard = otherBlocks.length > 0;
   const isCardExpanded = !turn.isComplete || expanded;
 

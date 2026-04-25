@@ -45,6 +45,15 @@ export class SessionManager {
     return this.provider.sendMessageStream(sessionId, prompt);
   }
 
+  async enqueuePrompt(sessionId: string, prompt: string): Promise<boolean> {
+    const session = this.get(sessionId);
+    if (!session) {
+      return false;
+    }
+
+    return this.provider.enqueuePrompt(sessionId, prompt);
+  }
+
   async respondToUserInput(
     sessionId: string,
     requestId: string,

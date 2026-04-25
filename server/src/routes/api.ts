@@ -70,6 +70,23 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
     reply.raw.end();
   });
 
+  app.post<{ Body: { sessionId?: unknown; message?: unknown } }>("/api/prompts", async (request, reply) => {
+    const { sessionId, message } = request.body ?? {};
+    if (typeof sessionId !== "string" || !sessionId.trim()) {
+      return reply.code(400).send({ error: "sessionId is required." });
+    }
+    if (typeof message !== "string" || !message.trim()) {
+      return reply.code(400).send({ error: "Message must be a non-empty string." });
+    }
+
+    const accepted = await options.sessions.enqueuePrompt(sessionId, message.trim());
+    if (!accepted) {
+      return reply.code(404).send({ error: "Unknown, expired, or inactive session." });
+    }
+
+    return { ok: true };
+  });
+
   app.post<{ Body: { sessionId?: unknown; requestId?: unknown; answer?: unknown; wasFreeform?: unknown } }>(
     "/api/user-input",
     async (request, reply) => {

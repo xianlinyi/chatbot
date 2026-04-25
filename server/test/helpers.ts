@@ -46,6 +46,8 @@ export const testConfig: AppConfig = {
 
 export class MockAgentProvider implements AgentProvider {
   readonly closed = new Set<string>();
+  readonly prompts: Array<{ sessionId: string; prompt: string }> = [];
+  activePromptSessionIds = new Set<string>(["session-1"]);
   readonly info: AgentInfo = {
     provider: "github-copilot",
     model: "test-model",
@@ -81,6 +83,15 @@ export class MockAgentProvider implements AgentProvider {
     yield { type: "delta", content: "hel" };
     yield { type: "delta", content: "lo" };
     yield { type: "done" };
+  }
+
+  async enqueuePrompt(sessionId: string, prompt: string): Promise<boolean> {
+    if (!this.activePromptSessionIds.has(sessionId)) {
+      return false;
+    }
+
+    this.prompts.push({ sessionId, prompt });
+    return true;
   }
 
   async respondToUserInput(
