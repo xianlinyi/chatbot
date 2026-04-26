@@ -675,6 +675,8 @@ html.dark .user-message-card.overflowing.collapsed .user-message-clip::after {
 }
 
 .assistant-turn-card {
+  --assistant-turn-line-x: 23px;
+  --assistant-turn-content-x: 66px;
   width: 100%;
   border-radius: 20px;
   background: transparent;
@@ -684,8 +686,14 @@ html.dark .user-message-card.overflowing.collapsed .user-message-clip::after {
   position: relative;
 }
 
+.assistant-turn-card > .glass-card-scroll-area {
+  position: relative;
+  z-index: 1;
+  padding-left: var(--assistant-turn-content-x);
+}
+
 .assistant-turn-card .message-content {
-  padding-left: 28px;
+  padding-left: 0;
 }
 
 .assistant-turn > .message-content {
@@ -703,16 +711,16 @@ html.dark .user-message-card.overflowing.collapsed .user-message-clip::after {
 .assistant-turn-card::before {
   content: "";
   position: absolute;
-  left: 23px;
+  left: var(--assistant-turn-line-x);
   top: 24px;
   bottom: 24px;
-  width: 2px;
-  background: #a1a1aa;
-  z-index: 1;
+  width: 1px;
+  background: rgba(45, 45, 45, 0.42);
+  z-index: 0;
 }
 
 html.dark .assistant-turn-card::before {
-  background: #71717a;
+  background: rgba(248, 248, 248, 0.58);
 }
 
 html.dark .assistant-turn-card {
@@ -1010,7 +1018,7 @@ html.dark .input-request-choice {
   right: 0;
   height: 1px;
   background: rgba(0, 0, 0, 0.08); /* Default static line */
-  transition: all 0.3s ease;
+  transition: background 0.3s ease;
   z-index: 1;
 }
 
@@ -1019,25 +1027,7 @@ html.dark .input-request-choice {
 }
 
 .choice-request-card.waiting::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 42%;
-  height: 1px;
-  pointer-events: none;
-  background: linear-gradient(
-    90deg,
-    rgba(0, 0, 0, 0),
-    rgba(0, 0, 0, 0.52) 50%,
-    rgba(0, 0, 0, 0)
-  );
-  filter: blur(0.2px);
-  opacity: 0.72;
-  transform: translate3d(-100%, 0, 0);
-  z-index: 11;
-  animation: choice-request-line-shine 2.4s linear infinite;
-  will-change: transform;
+  content: none;
 }
 
 .choice-request-strings {
@@ -1160,6 +1150,98 @@ html.dark .choice-request-strings {
   margin-top: 0;
 }
 
+.choice-request-freeform {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 28px;
+  margin-top: 2px;
+  padding: 0 4px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-color);
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.choice-request-freeform::before {
+  content: "";
+  display: inline-block;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.3;
+  box-sizing: border-box;
+}
+
+.choice-request-freeform:focus-within {
+  background: rgba(0, 0, 0, 0.04);
+  transform: translateX(3px);
+}
+
+.choice-request-freeform:focus-within::before {
+  opacity: 0.9;
+  background: currentColor;
+}
+
+.choice-request-freeform-input {
+  flex: 1;
+  width: 100%;
+  height: 28px;
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+}
+
+.choice-request-freeform-input:focus {
+  background: transparent;
+}
+
+.choice-request-freeform-input::placeholder {
+  color: currentColor;
+  opacity: 0.36;
+}
+
+.choice-request-freeform-submit {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-color);
+  cursor: pointer;
+  opacity: 0.74;
+}
+
+.choice-request-freeform-submit svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.choice-request-freeform-submit:disabled {
+  cursor: default;
+  opacity: 0.28;
+}
+
+.choice-request-freeform-submit:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.08);
+  opacity: 1;
+}
+
 html.dark .choice-request-card::before {
   background: rgba(255, 255, 255, 0.12);
 }
@@ -1187,6 +1269,14 @@ html.dark .choice-request-option {
 html.dark .choice-request-option:hover:not(:disabled) {
   border-color: transparent;
   background: rgba(255, 255, 255, 0.06);
+}
+
+html.dark .choice-request-freeform:focus-within {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+html.dark .choice-request-freeform-submit:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .message-usage {

@@ -11,7 +11,7 @@ type MessageListProps = {
   isDarkMode: boolean;
   messages: ChatMessage[];
   onAnimationDone: (messageId: string) => void;
-  onChoiceSelect: (requestId: string, choice: string) => void;
+  onChoiceSelect: (requestId: string, choice: string, wasFreeform?: boolean) => void;
   onCopy: (content: string, messageId: string) => void;
   onToggleUserMessageExpansion: (messageId: string) => void;
   overflowingUserMessages: Record<string, boolean>;
@@ -115,7 +115,7 @@ function MarkdownMessageContent({
 }: {
   content: string;
   events?: ChatDisplayEvent[];
-  onChoiceSelect?: (requestId: string, choice: string) => void;
+  onChoiceSelect?: (requestId: string, choice: string, wasFreeform?: boolean) => void;
   answeredInputRequestIds?: ReadonlySet<string>;
 }) {
   return (

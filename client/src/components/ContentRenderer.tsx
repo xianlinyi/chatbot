@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatDisplayEvent } from "../types";
 import { GlassCard } from "./GlassCard";
+import { SendIcon } from "./icons";
 import { StatusLabel } from "./StatusLabel";
 import { ToolExecutionBlock } from "./ToolExecutionBlock";
 
@@ -21,6 +22,7 @@ type Block = {
   error?: string;
   question?: string;
   choices?: string[];
+  allowFreeform?: boolean;
   askUserKey?: string;
   isSyntheticAskUser?: boolean;
   success?: boolean;
@@ -47,7 +49,7 @@ export function ContentRenderer({
 }: {
   content: string;
   events?: ChatDisplayEvent[];
-  onChoiceSelect?: (requestId: string, choice: string) => void;
+  onChoiceSelect?: (requestId: string, choice: string, wasFreeform?: boolean) => void;
   answeredInputRequestIds?: ReadonlySet<string>;
 }) {
   const nodes = useMemo(() => {
@@ -87,6 +89,7 @@ export function ContentRenderer({
           requestId={block.requestId}
           question={block.question || ""}
           choices={block.choices ?? []}
+          allowFreeform={Boolean(block.allowFreeform)}
           disabled={block.requestId ? answeredInputRequestIds?.has(block.requestId) : false}
           onChoiceSelect={onChoiceSelect}
         />
@@ -224,20 +227,23 @@ function parseDisplayEvents(events: ChatDisplayEvent[]): ParsedNode[] {
     if (event.type === "input_request" || event.eventType === "input_request") {
       const requestId = stringValue(data.requestId);
       const question = stringValue(data.question) ?? "";
-      const choices = arrayStrings(data.choices);
-      const askUserKey = makeAskUserKey(question, choices);
+      const choiceData = parseChoiceData(data.choices);
+      const choices = choiceData.choices;
+      const allowFreeform = booleanValue(data.allowFreeform ?? data.allow_freeform) || choiceData.allowFreeform;
+      const askUserKey = makeAskUserKey(question, choices, allowFreeform);
       if (currentTurn) {
         currentTurn.hasAskUserRequest = true;
       }
 
       removeSyntheticAskUserBlock(parentNodes, currentTurn, askUserKey);
       pushBlock(
-        choices.length
+        choices.length || allowFreeform
           ? {
               type: "choice",
               requestId,
               question,
               choices,
+              allowFreeform,
               askUserKey
             }
           : {
@@ -260,16 +266,34 @@ function parseDisplayEvents(events: ChatDisplayEvent[]): ParsedNode[] {
       }
 
       if (isSkillTool(toolName, args, data)) {
+        const existingBlock = toolBlocks.get(toolCallId);
+        if (existingBlock) {
+          existingBlock.isComplete = false;
+          existingBlock.description = description ?? existingBlock.description;
+          existingBlock.skillName = skillDisplayName(args, data) ?? existingBlock.skillName;
+          existingBlock.toolName = toolName ?? existingBlock.toolName;
+          continue;
+        }
+
         const block: Block = {
           type: "skill",
           toolCallId,
           toolName,
           skillName: skillDisplayName(args, data) ?? toolName,
           description,
-          isComplete: event.eventType === "tool.user_requested"
+          isComplete: false
         };
         toolBlocks.set(toolCallId, block);
         pushBlock(block);
+        continue;
+      }
+
+      const existingBlock = toolBlocks.get(toolCallId);
+      if (existingBlock) {
+        existingBlock.isComplete = false;
+        existingBlock.toolName = toolName ?? existingBlock.toolName;
+        existingBlock.command = toolCallContent(args) ?? existingBlock.command;
+        existingBlock.description = description ?? existingBlock.description;
         continue;
       }
 
@@ -277,9 +301,9 @@ function parseDisplayEvents(events: ChatDisplayEvent[]): ParsedNode[] {
         type: "tool",
         toolCallId,
         toolName,
-        command: stringValue(args?.command ?? args?.cmd),
+        command: toolCallContent(args),
         description,
-        isComplete: event.eventType === "tool.user_requested"
+        isComplete: false
       };
       toolBlocks.set(toolCallId, block);
       pushBlock(block);
@@ -424,6 +448,16 @@ function skillDisplayName(args: Record<string, unknown> | undefined, data: Recor
   );
 }
 
+function toolCallContent(args: Record<string, unknown> | undefined) {
+  const command = stringValue(args?.command ?? args?.cmd);
+  if (command) {
+    return command;
+  }
+
+  const entries = Object.entries(args ?? {}).filter(([, value]) => value !== undefined);
+  return entries.length ? JSON.stringify(Object.fromEntries(entries), null, 2) : undefined;
+}
+
 function isAskUserRequest(request: unknown) {
   return isAskUserToolName(stringValue(objectValue(request)?.name));
 }
@@ -439,16 +473,19 @@ function createAskUserBlock(request: unknown): Block | undefined {
   }
 
   const args = objectValue(requestData.arguments);
-  const choices = arrayStrings(args?.choices ?? args?.options);
+  const choiceData = parseChoiceData(args?.choices ?? args?.options);
+  const choices = choiceData.choices;
+  const allowFreeform = booleanValue(args?.allowFreeform ?? args?.allow_freeform ?? args?.freeform) || choiceData.allowFreeform;
   const type = stringValue(args?.type)?.toLowerCase();
   const question = stringValue(args?.question ?? args?.prompt ?? args?.message) ?? "";
 
-  if (type === "choice" || choices.length > 0) {
+  if (type === "choice" || choices.length > 0 || allowFreeform) {
     return {
       type: "choice",
       question,
       choices,
-      askUserKey: makeAskUserKey(question, choices),
+      allowFreeform,
+      askUserKey: makeAskUserKey(question, choices, allowFreeform),
       isSyntheticAskUser: true
     };
   }
@@ -467,7 +504,7 @@ function createAskUserBlock(request: unknown): Block | undefined {
     ? {
         type: "message",
         content,
-        askUserKey: makeAskUserKey(question, []),
+        askUserKey: makeAskUserKey(question, [], false),
         isSyntheticAskUser: true
       }
     : undefined;
@@ -494,8 +531,8 @@ function removeSyntheticAskUserBlock(parentNodes: ParsedNode[], currentTurn: Tur
   }
 }
 
-function makeAskUserKey(question: string, choices: string[]) {
-  return `${question.trim()}\u0000${choices.join("\u0000")}`;
+function makeAskUserKey(question: string, choices: string[], allowFreeform = false) {
+  return `${question.trim()}\u0000${choices.join("\u0000")}\u0000${allowFreeform ? "freeform" : ""}`;
 }
 
 function formatSessionEvent(eventType: string, data: Record<string, unknown>) {
@@ -574,6 +611,18 @@ function stringValue(value: unknown): string | undefined {
   return undefined;
 }
 
+function booleanValue(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    return value.toLowerCase() === "true";
+  }
+
+  return false;
+}
+
 function arrayStrings(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.flatMap((item) => arrayStrings(item));
@@ -581,6 +630,35 @@ function arrayStrings(value: unknown): string[] {
 
   const string = stringValue(value);
   return string ? [string] : [];
+}
+
+function parseChoiceData(value: unknown): { choices: string[]; allowFreeform: boolean } {
+  if (!Array.isArray(value)) {
+    return { choices: arrayStrings(value), allowFreeform: false };
+  }
+
+  const choices: string[] = [];
+  let allowFreeform = false;
+
+  for (const item of value) {
+    const itemData = objectValue(item);
+    if (itemData) {
+      allowFreeform = allowFreeform || booleanValue(
+        itemData.allowFreeform ?? itemData.allow_freeform ?? itemData.freeform
+      );
+      const label = stringValue(
+        itemData.label ?? itemData.value ?? itemData.text ?? itemData.choice ?? itemData.name
+      );
+      if (label) {
+        choices.push(label);
+      }
+      continue;
+    }
+
+    choices.push(...arrayStrings(item));
+  }
+
+  return { choices, allowFreeform };
 }
 
 function SkillPillCard({ name, description }: { name: string; description?: string }) {
@@ -719,41 +797,79 @@ function ChoiceRequestCard({
   requestId,
   question,
   choices,
+  allowFreeform,
   disabled = false,
   onChoiceSelect
 }: {
   requestId?: string;
   question: string;
   choices: string[];
+  allowFreeform: boolean;
   disabled?: boolean;
-  onChoiceSelect?: (requestId: string, choice: string) => void;
+  onChoiceSelect?: (requestId: string, choice: string, wasFreeform?: boolean) => void;
 }) {
   const cardRef = useRef<HTMLElement>(null);
+  const [freeformValue, setFreeformValue] = useState("");
   const isWaiting = !disabled;
+  const hasChoices = choices.length > 0;
+  const prompt = hasChoices ? "请选择" : "请输入";
+  const canSubmitFreeform = Boolean(requestId && freeformValue.trim() && !disabled);
+
+  const submitFreeform = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const answer = freeformValue.trim();
+    if (!requestId || !answer || disabled) {
+      return;
+    }
+
+    onChoiceSelect?.(requestId, answer, true);
+  };
 
   return (
     <section ref={cardRef} className={`choice-request-card ${isWaiting ? "waiting" : ""}`}>
       {isWaiting && <ChoiceRequestStrings parentRef={cardRef} />}
-      <div className="choice-request-prompt">请选择</div>
+      <div className="choice-request-prompt">{prompt}</div>
       {question ? (
         <div className="choice-request-question">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{question}</ReactMarkdown>
         </div>
       ) : null}
-      {choices.length ? (
+      {hasChoices ? (
         <div className="choice-request-options" aria-label="选项">
           {choices.map((choice) => (
             <button
               className="choice-request-option"
               disabled={disabled || !requestId}
               key={choice}
-              onClick={requestId ? () => onChoiceSelect?.(requestId, choice) : undefined}
+              onClick={requestId ? () => onChoiceSelect?.(requestId, choice, false) : undefined}
               type="button"
             >
               {choice}
             </button>
           ))}
         </div>
+      ) : null}
+      {allowFreeform ? (
+        <form className="choice-request-freeform" onSubmit={submitFreeform}>
+          <input
+            aria-label={hasChoices ? "自定义输入" : "请输入"}
+            className="choice-request-freeform-input"
+            disabled={disabled || !requestId}
+            onChange={(event) => setFreeformValue(event.target.value)}
+            placeholder={hasChoices ? "自定义输入..." : "输入内容..."}
+            type="text"
+            value={freeformValue}
+          />
+          <button
+            aria-label="提交自定义输入"
+            className="choice-request-freeform-submit"
+            disabled={!canSubmitFreeform}
+            title="提交"
+            type="submit"
+          >
+            <SendIcon />
+          </button>
+        </form>
       ) : null}
     </section>
   );
@@ -768,7 +884,7 @@ function TurnNode({
   idx: number;
   renderBlock: (block: Block, idx: number | string) => React.ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() => !turn.isComplete);
 
   const bodyBlocks = turn.blocks.filter(
     (block) => block.type === "message" || block.type === "skill" || block.type === "choice"
@@ -777,7 +893,7 @@ function TurnNode({
     (block) => block.type !== "message" && block.type !== "skill" && block.type !== "choice"
   );
   const isSpecial = Boolean(otherBlocks.some((block) => block.type === "tool"));
-  const canToggleCard = turn.isComplete && isSpecial && otherBlocks.length > 0;
+  const canToggleCard = isSpecial && otherBlocks.length > 0;
 
   if (turn.isComplete && !isSpecial && !turn.hasAskUserRequest) {
     return (
@@ -789,7 +905,7 @@ function TurnNode({
 
   const statusText = turnStatusText(turn);
   const hasCard = otherBlocks.length > 0;
-  const isCardExpanded = !turn.isComplete || expanded;
+  const isCardExpanded = expanded;
 
   return (
     <div className="assistant-turn" key={`turn-${idx}`}>

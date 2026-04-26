@@ -563,7 +563,7 @@ export function App() {
     setTokenUsage((current) => addTokenUsage(current, usage));
   }
 
-  async function handleChoiceSelect(requestId: string, choice: string) {
+  async function handleChoiceSelect(requestId: string, choice: string, wasFreeform = false) {
     if (!sessionId) {
       setError("No active session for this answer.");
       return;
@@ -577,7 +577,7 @@ export function App() {
     setAnsweredInputRequestIds((current) => new Set(current).add(requestId));
 
     try {
-      await answerUserInput(sessionId, requestId, choice, false);
+      await answerUserInput(sessionId, requestId, choice, wasFreeform);
       setPendingInputRequest((current) => (current?.requestId === requestId ? undefined : current));
     } catch (caught) {
       setAnsweredInputRequestIds((current) => {

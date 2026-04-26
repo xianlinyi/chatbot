@@ -105,6 +105,36 @@ describe("ContentRenderer turn labels", () => {
     expect(screen.getByText("Run tests")).toBeInTheDocument();
   });
 
+  it("renders tool call arguments as a code block when no command is present", async () => {
+    const user = userEvent.setup();
+
+    const { container } = render(
+      <ContentRenderer
+        content=""
+        events={[
+          { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 1 } },
+          {
+            type: "tool",
+            eventType: "tool.execution_start",
+            data: {
+              toolCallId: "call-1",
+              toolName: "search",
+              arguments: { query: "latest docs", limit: 3 }
+            }
+          },
+          { type: "tool", eventType: "tool.execution_complete", data: { toolCallId: "call-1", success: true } },
+          { type: "assistant_event", eventType: "assistant.turn_end", data: { turnId: 1 } }
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "展开工具详情" }));
+
+    const codeBlock = container.querySelector(".tool-execution-command code");
+    expect(codeBlock).toHaveTextContent('"query": "latest docs"');
+    expect(codeBlock).toHaveTextContent('"limit": 3');
+  });
+
   it("renders ask_user tool request content as visible message text", () => {
     render(
       <ContentRenderer
@@ -168,6 +198,97 @@ describe("ContentRenderer turn labels", () => {
     expect(screen.getByText("请选择部署环境").closest(".choice-request-question")).toBeInTheDocument();
     expect(screen.getByText("staging")).toHaveClass("choice-request-option");
     expect(screen.getByText("production")).toHaveClass("choice-request-option");
+  });
+
+  it("renders freeform-only ask_user requests as input cards", () => {
+    render(
+      <ContentRenderer
+        content=""
+        events={[
+          { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 1 } },
+          {
+            type: "assistant_event",
+            eventType: "assistant.message",
+            data: {
+              toolRequests: [
+                {
+                  name: "ask_user",
+                  arguments: {
+                    question: "Please provide your desired commit message. You can edit the draft or write a new one.",
+                    allow_freeform: true
+                  }
+                }
+              ]
+            }
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("请输入")).toHaveClass("choice-request-prompt");
+    expect(screen.getByRole("textbox", { name: "请输入" })).toBeInTheDocument();
+  });
+
+  it("adds a freeform input below choices when freeform is allowed", async () => {
+    const user = userEvent.setup();
+    const onChoiceSelect = vi.fn();
+
+    render(
+      <ContentRenderer
+        content=""
+        onChoiceSelect={onChoiceSelect}
+        events={[
+          { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 1 } },
+          {
+            type: "input_request",
+            eventType: "input_request",
+            data: {
+              requestId: "request-1",
+              question: "Pick or write one",
+              choices: ["staging", "production"],
+              allowFreeform: true
+            }
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("请选择")).toHaveClass("choice-request-prompt");
+    expect(screen.getByRole("button", { name: "production" })).toBeInTheDocument();
+    const input = screen.getByRole("textbox", { name: "自定义输入" });
+    await user.type(input, "preview");
+    await user.click(screen.getByRole("button", { name: "提交自定义输入" }));
+
+    expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "preview", true);
+  });
+
+  it("treats a freeform choice marker as allowing custom input", () => {
+    render(
+      <ContentRenderer
+        content=""
+        events={[
+          { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 1 } },
+          {
+            type: "assistant_event",
+            eventType: "assistant.message",
+            data: {
+              toolRequests: [
+                {
+                  name: "ask_user",
+                  arguments: {
+                    question: "Pick or write",
+                    choices: ["staging", { allow_freeform: true }]
+                  }
+                }
+              ]
+            }
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "staging" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "自定义输入" })).toBeInTheDocument();
   });
 
   it("deduplicates ask_user tool requests when the matching input request arrives", () => {
@@ -238,7 +359,7 @@ describe("ContentRenderer turn labels", () => {
 
     await user.click(screen.getByRole("button", { name: "production" }));
 
-    expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "production");
+    expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "production", false);
   });
 
   it("hides a choice request card after the request is answered", () => {
