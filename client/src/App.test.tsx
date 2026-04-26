@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
@@ -230,6 +230,7 @@ describe("App", () => {
       )
     );
     expect(await screen.findByRole("button", { name: "Send message" })).toBeInTheDocument();
+    expect(await screen.findByText("Abort")).toBeInTheDocument();
   });
 
   it("keeps the composer editable and enqueues prompts while a response is streaming", async () => {
@@ -442,6 +443,76 @@ describe("App", () => {
       )
     );
     expect(document.querySelectorAll("article.message.user")).toHaveLength(1);
+  });
+
+  it("hides an ask_user input card after replying from the composer", async () => {
+    let resolveAnswer: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/agent-info") {
+        return jsonResponse({
+          app: { name: "Test Chatbot", icon: "spark" },
+          agent: {
+            provider: "github-copilot",
+            model: "test-model",
+            auth: { mode: "token", tokenType: "fine-grained-pat", hasToken: true },
+            instructions: undefined,
+            customAgents: [],
+            skillDirectories: [],
+            disabledSkills: [],
+            mcpServers: {},
+            permissions: { mode: "allow-all" },
+            persistence: { enabled: false, scope: "memory-only" }
+          }
+        });
+      }
+
+      if (url === "/api/messages" && init?.method === "POST") {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode('event: session\ndata: {"type":"session","sessionId":"session-1","created":true}\n\n')
+              );
+              controller.enqueue(
+                encoder.encode(
+                  'event: input_request\ndata: {"type":"input_request","requestId":"request-1","question":"请输入提交信息","allowFreeform":true}\n\n'
+                )
+              );
+            }
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" }
+          }
+        );
+      }
+
+      if (url === "/api/user-input" && init?.method === "POST") {
+        return new Promise<Response>((resolve) => {
+          resolveAnswer = resolve;
+        });
+      }
+
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("github-copilot · test-model · token");
+    await userEvent.type(screen.getByLabelText("Message"), "Hi");
+    await userEvent.keyboard("{Enter}");
+    expect(await screen.findByText("请输入提交信息")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Message"), "test commit");
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(screen.queryByText("请输入提交信息")).not.toBeInTheDocument());
+    await act(async () => {
+      resolveAnswer?.(jsonResponse({ ok: true }));
+    });
   });
 
 });

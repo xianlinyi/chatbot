@@ -235,7 +235,7 @@ function parseDisplayEvents(events: ChatDisplayEvent[]): ParsedNode[] {
         currentTurn.hasAskUserRequest = true;
       }
 
-      removeSyntheticAskUserBlock(parentNodes, currentTurn, askUserKey);
+      removeSyntheticAskUserBlock(parentNodes, currentTurn, askUserKey, question, choices);
       pushBlock(
         choices.length || allowFreeform
           ? {
@@ -261,8 +261,10 @@ function parseDisplayEvents(events: ChatDisplayEvent[]): ParsedNode[] {
       const args = objectValue(data.arguments);
       const toolName = stringValue(data.toolName);
       const description = stringValue(args?.description);
-      if (currentTurn && isAskUserToolName(toolName)) {
-        currentTurn.hasAskUserRequest = true;
+      if (isAskUserToolName(toolName)) {
+        if (currentTurn) {
+          currentTurn.hasAskUserRequest = true;
+        }
       }
 
       if (isSkillTool(toolName, args, data)) {
@@ -510,9 +512,15 @@ function createAskUserBlock(request: unknown): Block | undefined {
     : undefined;
 }
 
-function removeSyntheticAskUserBlock(parentNodes: ParsedNode[], currentTurn: Turn | null, askUserKey: string) {
+function removeSyntheticAskUserBlock(
+  parentNodes: ParsedNode[],
+  currentTurn: Turn | null,
+  askUserKey: string,
+  question: string,
+  choices: string[]
+) {
   const removeFromBlocks = (blocks: Block[]) => {
-    const index = blocks.findIndex((block) => block.isSyntheticAskUser && block.askUserKey === askUserKey);
+    const index = blocks.findIndex((block) => matchesSyntheticAskUser(block, askUserKey, question, choices));
     if (index >= 0) {
       blocks.splice(index, 1);
     }
@@ -524,11 +532,28 @@ function removeSyntheticAskUserBlock(parentNodes: ParsedNode[], currentTurn: Tur
   }
 
   const index = parentNodes.findIndex(
-    (node) => node.type !== "turn" && node.isSyntheticAskUser && node.askUserKey === askUserKey
+    (node) => node.type !== "turn" && matchesSyntheticAskUser(node, askUserKey, question, choices)
   );
   if (index >= 0) {
     parentNodes.splice(index, 1);
   }
+}
+
+function matchesSyntheticAskUser(block: Block, askUserKey: string, question: string, choices: string[]) {
+  if (!block.isSyntheticAskUser) {
+    return false;
+  }
+
+  if (block.askUserKey === askUserKey) {
+    return true;
+  }
+
+  if ((block.question ?? "").trim() !== question.trim()) {
+    return false;
+  }
+
+  const blockChoices = block.choices ?? [];
+  return blockChoices.length === choices.length && blockChoices.every((choice, index) => choice === choices[index]);
 }
 
 function makeAskUserKey(question: string, choices: string[], allowFreeform = false) {
@@ -810,10 +835,17 @@ function ChoiceRequestCard({
 }) {
   const cardRef = useRef<HTMLElement>(null);
   const [freeformValue, setFreeformValue] = useState("");
+  const [isLocallyAnswered, setIsLocallyAnswered] = useState(false);
   const isWaiting = !disabled;
   const hasChoices = choices.length > 0;
   const prompt = hasChoices ? "请选择" : "请输入";
   const canSubmitFreeform = Boolean(requestId && freeformValue.trim() && !disabled);
+
+  useEffect(() => {
+    if (disabled) {
+      setIsLocallyAnswered(true);
+    }
+  }, [disabled]);
 
   const submitFreeform = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -822,8 +854,22 @@ function ChoiceRequestCard({
       return;
     }
 
+    setIsLocallyAnswered(true);
     onChoiceSelect?.(requestId, answer, true);
   };
+
+  const selectChoice = (choice: string) => {
+    if (!requestId || disabled) {
+      return;
+    }
+
+    setIsLocallyAnswered(true);
+    onChoiceSelect?.(requestId, choice, false);
+  };
+
+  if (isLocallyAnswered) {
+    return null;
+  }
 
   return (
     <section ref={cardRef} className={`choice-request-card ${isWaiting ? "waiting" : ""}`}>
@@ -841,7 +887,7 @@ function ChoiceRequestCard({
               className="choice-request-option"
               disabled={disabled || !requestId}
               key={choice}
-              onClick={requestId ? () => onChoiceSelect?.(requestId, choice, false) : undefined}
+              onClick={() => selectChoice(choice)}
               type="button"
             >
               {choice}
@@ -884,7 +930,7 @@ function TurnNode({
   idx: number;
   renderBlock: (block: Block, idx: number | string) => React.ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(() => !turn.isComplete);
+  const [expanded, setExpanded] = useState(() => !turn.isComplete && !turn.hasAskUserRequest);
 
   const bodyBlocks = turn.blocks.filter(
     (block) => block.type === "message" || block.type === "skill" || block.type === "choice"
@@ -893,9 +939,28 @@ function TurnNode({
     (block) => block.type !== "message" && block.type !== "skill" && block.type !== "choice"
   );
   const isSpecial = Boolean(otherBlocks.some((block) => block.type === "tool"));
+  const hasCard = otherBlocks.length > 0;
   const canToggleCard = isSpecial && otherBlocks.length > 0;
 
-  if (turn.isComplete && !isSpecial && !turn.hasAskUserRequest) {
+  useEffect(() => {
+    if (isSpecial) {
+      setExpanded(!turn.isComplete && !turn.hasAskUserRequest);
+    }
+  }, [isSpecial, turn.hasAskUserRequest, turn.isComplete]);
+
+  if (!hasCard) {
+    if (turn.hasAskUserRequest) {
+      return (
+        <div className="assistant-turn" key={`turn-${idx}`}>
+          <div className="assistant-turn-label collapsed">
+            <span className="assistant-turn-toggle assistant-turn-toggle-static" aria-hidden="true" />
+            <StatusLabel text={turnStatusText(turn)} active={!turn.isComplete} />
+          </div>
+          {bodyBlocks.map((block, blockIdx) => renderBlock(block, `${idx}-${blockIdx}`))}
+        </div>
+      );
+    }
+
     return (
       <div className="assistant-turn" key={`turn-${idx}`}>
         {bodyBlocks.map((block, blockIdx) => renderBlock(block, `${idx}-${blockIdx}`))}
@@ -904,7 +969,6 @@ function TurnNode({
   }
 
   const statusText = turnStatusText(turn);
-  const hasCard = otherBlocks.length > 0;
   const isCardExpanded = expanded;
 
   return (

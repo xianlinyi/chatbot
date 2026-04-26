@@ -36,7 +36,6 @@ export function DotPulseBackdrop({ isActive, isDarkMode }: { isActive: boolean; 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const globalAlphaRef = useRef(0);
   const wavePropsRef = useRef<DotWaveProps>(createDotWaveProps());
-  const finishWaveUntilRef = useRef<number | undefined>();
   const waveStartedAtRef = useRef(0);
   const wasActiveRef = useRef(isActive);
 
@@ -65,30 +64,21 @@ export function DotPulseBackdrop({ isActive, isDarkMode }: { isActive: boolean; 
       waveStartedAtRef.current = now;
     }
 
-    if (!isActive && wasActiveRef.current) {
-      const elapsed = Math.max(0, now - waveStartedAtRef.current);
-      const remainingCycle = DOT_WAVE_CYCLE_MS - (elapsed % DOT_WAVE_CYCLE_MS);
-      finishWaveUntilRef.current = now + remainingCycle;
-    } else if (isActive) {
+    if (isActive) {
       if (waveStartedAtRef.current === 0) {
         waveStartedAtRef.current = now;
       }
-      finishWaveUntilRef.current = undefined;
     }
     wasActiveRef.current = isActive;
 
     const draw = (now: number) => {
       const dt = now - lastTime;
       lastTime = now;
-      const shouldFinishWave =
-        !prefersReducedMotion && !isActive && finishWaveUntilRef.current !== undefined && now < finishWaveUntilRef.current;
-      const shouldHoldWave = isActive || shouldFinishWave;
       const waveProps = wavePropsRef.current;
 
-      if (shouldHoldWave && !prefersReducedMotion) {
+      if (isActive && !prefersReducedMotion) {
         globalAlphaRef.current = Math.min(1, globalAlphaRef.current + dt * DOT_WAVE_FADE_RATE);
       } else {
-        finishWaveUntilRef.current = undefined;
         globalAlphaRef.current = Math.max(0, globalAlphaRef.current - dt * DOT_WAVE_FADE_RATE);
       }
 
@@ -145,7 +135,7 @@ export function DotPulseBackdrop({ isActive, isDarkMode }: { isActive: boolean; 
         }
       }
 
-      if (shouldHoldWave || globalAlphaRef.current > 0) {
+      if (isActive || globalAlphaRef.current > 0) {
         frameId = window.requestAnimationFrame(draw);
       } else {
         frameId = 0;

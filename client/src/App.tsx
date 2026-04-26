@@ -134,7 +134,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const labels = Array.from(
+      document.querySelectorAll<HTMLElement>(".assistant-turn-label, .tool-execution-summary")
+    );
+    const activeLabel = labels.findLast((label) => label.querySelector(".status-label.active"));
+    const target = activeLabel ?? bottomRef.current;
+    target?.scrollIntoView?.({ behavior: "smooth", block: "center" });
   }, [messages]);
 
   useEffect(() => {
@@ -265,6 +270,7 @@ export function App() {
     manualStopRequestedRef.current = true;
     activeRequestControllerRef.current?.abort();
     setIsSending(false);
+    setPendingInputRequest(undefined);
     setError(undefined);
 
     const assistantId = activeAssistantIdRef.current;
@@ -274,7 +280,7 @@ export function App() {
           message.id === assistantId
             ? {
                 ...message,
-                content: message.content || "已停止。",
+                content: abortContent(message.content),
                 status: "done"
               }
             : message
@@ -310,11 +316,16 @@ export function App() {
 
       setError(undefined);
       setDraft("");
+      setAnsweredInputRequestIds((current) => new Set(current).add(pendingInputRequest.requestId));
       try {
         await answerUserInput(sessionId, pendingInputRequest.requestId, prompt, true);
         setPendingInputRequest(undefined);
-        setAnsweredInputRequestIds((current) => new Set(current).add(pendingInputRequest.requestId));
       } catch (caught) {
+        setAnsweredInputRequestIds((current) => {
+          const next = new Set(current);
+          next.delete(pendingInputRequest.requestId);
+          return next;
+        });
         setError(caught instanceof Error ? caught.message : "Unable to answer Copilot.");
       }
       return;
@@ -491,7 +502,7 @@ export function App() {
             item.id === assistantId
               ? {
                   ...item,
-                  content: item.content || "已停止。",
+                  content: abortContent(item.content),
                   status: "done"
                 }
               : item
@@ -516,6 +527,15 @@ export function App() {
       // Ensure input is focused after message is sent
       setTimeout(() => inputRef.current?.focus(), 0);
     }
+  }
+
+  function abortContent(content: string) {
+    const trimmed = content.trimEnd();
+    if (/\bAbort$/i.test(trimmed)) {
+      return content;
+    }
+
+    return trimmed ? `${trimmed}\n\nAbort` : "Abort";
   }
 
   function appendInputRequest(assistantId: string, request: InputRequest) {

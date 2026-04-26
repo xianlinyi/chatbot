@@ -622,7 +622,7 @@ html.dark .user-message-card.overflowing.collapsed .user-message-clip::after {
   color: var(--text-color);
   cursor: pointer;
   user-select: none;
-  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease;
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .assistant-turn-toggle::before {
@@ -633,12 +633,17 @@ html.dark .user-message-card.overflowing.collapsed .user-message-clip::after {
   border-right: 1.5px solid currentColor;
   transform: rotate(45deg);
   transform-origin: 58% 42%;
-  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1);
   opacity: 0.58;
 }
 
 .assistant-turn-toggle:hover::before {
   opacity: 0.86;
+}
+
+.assistant-turn-toggle-static {
+  cursor: default;
+  pointer-events: none;
 }
 
 .assistant-turn-toggle[aria-expanded="true"]::before {
@@ -654,9 +659,9 @@ html.dark .user-message-card.overflowing.collapsed .user-message-clip::after {
   transform: translateY(-3px) scaleY(0.98);
   transform-origin: top;
   transition:
-    grid-template-rows 360ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 240ms ease,
-    transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+    grid-template-rows 380ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 380ms cubic-bezier(0.16, 1, 0.3, 1);
   will-change: grid-template-rows, opacity, transform;
 }
 
@@ -712,8 +717,8 @@ html.dark .user-message-card.overflowing.collapsed .user-message-clip::after {
   content: "";
   position: absolute;
   left: var(--assistant-turn-line-x);
-  top: 24px;
-  bottom: 24px;
+  top: 0;
+  bottom: 0;
   width: 1px;
   background: rgba(45, 45, 45, 0.42);
   z-index: 0;

@@ -20,8 +20,8 @@ describe("ContentRenderer turn labels", () => {
     expect(screen.getByText("完成后的回复")).toBeInTheDocument();
   });
 
-  it("uses ask_user labels while waiting and after completion", () => {
-    const { rerender } = render(
+  it("renders ask_user cards with a collapsed turn label", () => {
+    const { container, rerender } = render(
       <ContentRenderer
         content=""
         events={[
@@ -40,6 +40,8 @@ describe("ContentRenderer turn labels", () => {
     );
 
     expect(screen.getByText("正在询问用户")).toHaveClass("active");
+    expect(container.querySelector(".assistant-turn-card-shell")).toBeNull();
+    expect(screen.getByText("请选择部署环境")).toBeInTheDocument();
 
     rerender(
       <ContentRenderer
@@ -61,6 +63,8 @@ describe("ContentRenderer turn labels", () => {
     );
 
     expect(screen.getByText("询问用户")).not.toHaveClass("active");
+    expect(container.querySelector(".assistant-turn-card-shell")).toBeNull();
+    expect(screen.getByText("请选择部署环境")).toBeInTheDocument();
   });
 
   it("collapses a completed special turn and expands it from the triangle toggle", async () => {
@@ -103,6 +107,44 @@ describe("ContentRenderer turn labels", () => {
     expect(cardShell).toHaveAttribute("aria-hidden", "false");
     expect(container.querySelector(".glass-card-container")).toHaveStyle({ maxHeight: "200px" });
     expect(screen.getByText("Run tests")).toBeInTheDocument();
+  });
+
+  it("auto-collapses an expanded tool turn when it completes", () => {
+    const runningEvents = [
+      { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 1 } },
+      {
+        type: "tool",
+        eventType: "tool.execution_start",
+        data: {
+          toolCallId: "call-1",
+          toolName: "bash",
+          arguments: { command: "npm test", description: "Run tests" }
+        }
+      }
+    ] as const;
+
+    const { container, rerender } = render(
+      <ContentRenderer
+        content=""
+        events={[...runningEvents]}
+      />
+    );
+
+    expect(container.querySelector(".assistant-turn-card-shell")).toHaveClass("expanded");
+
+    rerender(
+      <ContentRenderer
+        content=""
+        events={[
+          ...runningEvents,
+          { type: "tool", eventType: "tool.execution_complete", data: { toolCallId: "call-1", success: true } },
+          { type: "assistant_event", eventType: "assistant.turn_end", data: { turnId: 1 } }
+        ]}
+      />
+    );
+
+    expect(container.querySelector(".assistant-turn-card-shell")).toHaveClass("collapsed");
+    expect(screen.getByRole("button", { name: "展开工具详情" })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("renders tool call arguments as a code block when no command is present", async () => {
@@ -262,6 +304,79 @@ describe("ContentRenderer turn labels", () => {
     expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "preview", true);
   });
 
+  it("hides a choice card immediately after selecting an option", async () => {
+    const user = userEvent.setup();
+    const onChoiceSelect = vi.fn();
+
+    render(
+      <ContentRenderer
+        content=""
+        onChoiceSelect={onChoiceSelect}
+        events={[
+          { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 1 } },
+          {
+            type: "input_request",
+            eventType: "input_request",
+            data: {
+              requestId: "request-1",
+              question: "请选择部署环境",
+              choices: ["staging", "production"]
+            }
+          }
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "production" }));
+
+    expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
+    expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "production", false);
+  });
+
+  it("renders ask_user tool calls in collapsed detail blocks that can expand", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <ContentRenderer
+        content=""
+        events={[
+          { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 1 } },
+          {
+            type: "tool",
+            eventType: "tool.execution_start",
+            data: {
+              toolCallId: "ask-1",
+              toolName: "ask_user",
+              arguments: { question: "请选择部署环境", choices: ["staging", "production"] }
+            }
+          },
+          {
+            type: "input_request",
+            eventType: "input_request",
+            data: {
+              requestId: "request-1",
+              question: "请选择部署环境",
+              choices: ["staging", "production"]
+            }
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("正在询问用户")).toHaveClass("active");
+    expect(container.querySelector(".assistant-turn-card-shell")).toHaveClass("collapsed");
+    expect(screen.getByText("请选择部署环境")).toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: "展开工具详情" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(container.querySelector(".assistant-turn-card-shell")).toHaveClass("expanded");
+    expect(container.querySelector(".tool-execution-block")).not.toBeNull();
+    expect(container.querySelector(".tool-execution-command code")).toHaveTextContent("请选择部署环境");
+  });
+
   it("treats a freeform choice marker as allowing custom input", () => {
     render(
       <ContentRenderer
@@ -331,6 +446,53 @@ describe("ContentRenderer turn labels", () => {
     expect(screen.getAllByText("请选择")).toHaveLength(1);
     expect(screen.getAllByText("请选择部署环境")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "production" })).toBeEnabled();
+  });
+
+  it("deduplicates synthetic ask_user cards even when freeform flags differ", async () => {
+    const user = userEvent.setup();
+    const onChoiceSelect = vi.fn();
+
+    render(
+      <ContentRenderer
+        content=""
+        onChoiceSelect={onChoiceSelect}
+        events={[
+          { type: "assistant_event", eventType: "assistant.turn_start", data: { turnId: 1 } },
+          {
+            type: "assistant_event",
+            eventType: "assistant.message",
+            data: {
+              toolRequests: [
+                {
+                  name: "ask_user",
+                  arguments: {
+                    type: "choice",
+                    question: "请选择部署环境",
+                    choices: ["staging", "production"]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            type: "input_request",
+            eventType: "input_request",
+            data: {
+              requestId: "request-1",
+              question: "请选择部署环境",
+              choices: ["staging", "production"],
+              allowFreeform: true
+            }
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getAllByText("请选择部署环境")).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "production" }));
+
+    expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
+    expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "production", false);
   });
 
   it("calls back with the selected input request choice", async () => {

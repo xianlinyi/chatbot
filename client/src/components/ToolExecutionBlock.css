@@ -39,7 +39,7 @@ html.dark .tool-execution-block {
   opacity: 0.58;
   transform: rotate(45deg);
   transform-origin: 58% 42%;
-  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .tool-execution-summary:hover::before {
@@ -63,7 +63,7 @@ html.dark .tool-execution-block {
   left: calc((var(--assistant-turn-content-x, 66px) * -1) + var(--assistant-turn-line-x, 23px));
   border-radius: 999px;
   pointer-events: none;
-  z-index: 2;
+  z-index: 3;
 }
 
 .tool-execution-block.active::before {
@@ -72,11 +72,12 @@ html.dark .tool-execution-block {
   background: #a1a1aa;
   box-shadow: 0 0 0 2px #0b0d10;
   transform: translate(-50%, -50%);
+  z-index: 4;
 }
 
 .tool-execution-block.active::after {
-  width: 17px;
-  height: 17px;
+  width: 13px;
+  height: 13px;
   border: 1px solid rgba(161, 161, 170, 0.48);
   border-top-color: rgba(244, 244, 245, 0.92);
   transform: translate(-50%, -50%);
@@ -97,11 +98,13 @@ html.dark .tool-execution-description {
 
 .tool-code-block {
   display: block;
-  width: min(calc(100% + 16px), 760px);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 760px;
   margin: 8px 0 0 !important;
   font-size: 13px !important;
-  color: #d4d4d8;
-  background-color: rgba(0, 0, 0, 0.28) !important;
+  color: #1f2937;
+  background-color: rgba(255, 255, 255, 0.52) !important;
   border: 0;
   border-radius: 6px !important;
   padding: 10px 12px !important;
@@ -109,17 +112,20 @@ html.dark .tool-execution-description {
   white-space: pre-wrap;
   word-break: break-word;
   box-shadow: none;
-  filter: saturate(0.78) brightness(0.9);
-  backdrop-filter: brightness(0.72) saturate(0.9);
+  filter: none;
+  backdrop-filter: blur(2px) brightness(1.04) saturate(0.88);
 }
 
 html.dark .tool-code-block {
   color: #d4d4d8;
   background-color: rgba(0, 0, 0, 0.28) !important;
+  filter: saturate(0.78) brightness(0.9);
+  backdrop-filter: brightness(0.72) saturate(0.9);
 }
 
 .tool-execution-command {
   margin-left: -16px !important;
+  width: calc(100% + 16px);
 }
 
 .tool-code-block code {
@@ -132,42 +138,82 @@ html.dark .tool-code-block {
 }
 
 .tool-code-block .token-command {
-  color: #7dd3fc;
+  color: #0369a1;
 }
 
 .tool-code-block .token-option {
-  color: #c4b5fd;
+  color: #6d28d9;
 }
 
 .tool-code-block .token-operator {
-  color: #f0abfc;
+  color: #9333ea;
 }
 
 .tool-code-block .token-string {
-  color: #86efac;
+  color: #047857;
 }
 
 .tool-code-block .token-key {
-  color: #93c5fd;
+  color: #1d4ed8;
 }
 
 .tool-code-block .token-literal,
 .tool-code-block .token-number {
-  color: #fdba74;
+  color: #b45309;
 }
 
 .tool-code-block .token-added {
-  color: #86efac;
+  color: #047857;
 }
 
 .tool-code-block .token-removed,
 .tool-code-block .token-error {
-  color: #fca5a5;
+  color: #b91c1c;
 }
 
 .tool-code-block .token-hunk,
 .tool-code-block .token-status,
 .tool-code-block .token-warning {
+  color: #a16207;
+}
+
+html.dark .tool-code-block .token-command {
+  color: #7dd3fc;
+}
+
+html.dark .tool-code-block .token-option {
+  color: #c4b5fd;
+}
+
+html.dark .tool-code-block .token-operator {
+  color: #f0abfc;
+}
+
+html.dark .tool-code-block .token-string {
+  color: #86efac;
+}
+
+html.dark .tool-code-block .token-key {
+  color: #93c5fd;
+}
+
+html.dark .tool-code-block .token-literal,
+html.dark .tool-code-block .token-number {
+  color: #fdba74;
+}
+
+html.dark .tool-code-block .token-added {
+  color: #86efac;
+}
+
+html.dark .tool-code-block .token-removed,
+html.dark .tool-code-block .token-error {
+  color: #fca5a5;
+}
+
+html.dark .tool-code-block .token-hunk,
+html.dark .tool-code-block .token-status,
+html.dark .tool-code-block .token-warning {
   color: #fcd34d;
 }
 
@@ -186,7 +232,13 @@ html.dark .tool-execution-progress {
 .tool-execution-details {
   margin-top: 8px;
   margin-left: -16px;
+  width: calc(100% + 16px);
+  max-width: 760px;
   font-size: 13px;
+}
+
+.tool-execution-details .tool-code-block {
+  max-width: none;
 }
 
 .tool-execution-details summary {
