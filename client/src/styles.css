@@ -385,6 +385,28 @@ html.dark .shell.welcome .shell-header::after {
   pointer-events: none;
 }
 
+.conversation.clearing {
+  pointer-events: none;
+}
+
+.conversation.clearing .message-list {
+  animation: clearChatSweep 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity, transform, filter;
+}
+
+@keyframes clearChatSweep {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.985);
+    filter: blur(3px);
+  }
+}
+
   .conversation::-webkit-scrollbar {
     display: none; /* Chrome/Safari/Webkit */
   }
@@ -1502,6 +1524,13 @@ html.dark .composer-hints {
   opacity: 0.5;
 }
 
+.composer-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .send-button {
   width: 56px;
   height: 28px;
@@ -1515,6 +1544,37 @@ html.dark .composer-hints {
   justify-content: center;
   transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
   box-shadow: none;
+}
+
+.new-chat-button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--text-color) 18%, transparent);
+  border-radius: 9999px;
+  color: var(--text-color);
+  background: color-mix(in srgb, var(--bg-color) 62%, transparent);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.78;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.new-chat-button:hover {
+  border-color: color-mix(in srgb, var(--text-color) 34%, transparent);
+  background: color-mix(in srgb, var(--text-color) 8%, transparent);
+  opacity: 1;
+  transform: translateY(-1px) scale(1.05);
+}
+
+.new-chat-button:active {
+  opacity: 0.72;
+  transform: translateY(1px) scale(0.95);
 }
 
 .send-button:hover {
@@ -1546,6 +1606,11 @@ html.dark .composer-hints {
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+
+.new-chat-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 @keyframes stopButtonPulse {

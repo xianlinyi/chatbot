@@ -12,12 +12,13 @@ import {
 import type { TokenUsage } from "./chat/tokenUsage.js";
 import { ChatHeader } from "./components/ChatHeader";
 import { DotPulseBackdrop } from "./components/DotPulseBackdrop";
-import { SendIcon, StopIcon } from "./components/icons.js";
+import { PlusIcon, SendIcon, StopIcon } from "./components/icons.js";
 import { LiquidGlassInput } from "./components/LiquidGlassInput";
 import { MessageList } from "./components/MessageList";
 
 const USER_MESSAGE_COLLAPSED_HEIGHT = 168;
 const WELCOME_TRANSITION_MS = 720;
+const CHAT_CLEAR_ANIMATION_MS = 260;
 
 export function App() {
   const [agentInfo, setAgentInfo] = useState<AgentInfoResponse | undefined>();
@@ -37,6 +38,8 @@ export function App() {
   const [expandedUserMessages, setExpandedUserMessages] = useState<Record<string, boolean>>({});
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [overflowingUserMessages, setOverflowingUserMessages] = useState<Record<string, boolean>>({});
+  const [hasEnteredChat, setHasEnteredChat] = useState(false);
+  const [isClearingChat, setIsClearingChat] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== "undefined") {
       return document.documentElement.classList.contains("dark") || window.matchMedia?.("(prefers-color-scheme: dark)").matches;
@@ -53,6 +56,7 @@ export function App() {
   const countedUsageEventsRef = useRef<Set<string>>(new Set());
   const sessionIdRef = useRef<string | undefined>(undefined);
   const composerDropTimeoutRef = useRef<number | undefined>(undefined);
+  const clearChatTimeoutRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -62,6 +66,9 @@ export function App() {
     return () => {
       if (composerDropTimeoutRef.current) {
         window.clearTimeout(composerDropTimeoutRef.current);
+      }
+      if (clearChatTimeoutRef.current) {
+        window.clearTimeout(clearChatTimeoutRef.current);
       }
     };
   }, []);
@@ -137,7 +144,7 @@ export function App() {
     const labels = Array.from(
       document.querySelectorAll<HTMLElement>(".assistant-turn-label, .tool-execution-summary")
     );
-    const activeLabel = labels.findLast((label) => label.querySelector(".status-label.active"));
+    const activeLabel = labels.reverse().find((label: HTMLElement) => label.querySelector(".status-label.active"));
     const target = activeLabel ?? bottomRef.current;
     target?.scrollIntoView?.({ behavior: "smooth", block: "center" });
   }, [messages]);
@@ -260,7 +267,7 @@ export function App() {
   const tokenUsageText = useMemo(() => formatTokenUsage(tokenUsage), [tokenUsage]);
   const hasDraftText = draft.trim().length > 0;
   const showStopButton = isSending && !hasDraftText;
-  const isWelcomeMode = messages.length === 0 && !sessionId && !isSending && !pendingInputRequest;
+  const isWelcomeMode = !hasEnteredChat && messages.length === 0 && !sessionId && !isSending && !pendingInputRequest;
 
   async function handleStopRequest() {
     if (!isSending) {
@@ -299,8 +306,64 @@ export function App() {
     }
   }
 
+  async function handleNewChat() {
+    const currentSessionId = sessionIdRef.current;
+    const controller = activeRequestControllerRef.current;
+    const shouldAnimateClear = messages.length > 0;
+
+    manualStopRequestedRef.current = true;
+    controller?.abort();
+
+    setSessionId(undefined);
+    setDraft("");
+    setIsSending(false);
+    setPendingInputRequest(undefined);
+    setAnsweredInputRequestIds(new Set());
+    setTokenUsage(EMPTY_TOKEN_USAGE);
+    setExpandedUserMessages({});
+    setOverflowingUserMessages({});
+    setCopiedMessageId(null);
+    setError(undefined);
+    setHasEnteredChat(true);
+    if (clearChatTimeoutRef.current) {
+      window.clearTimeout(clearChatTimeoutRef.current);
+      clearChatTimeoutRef.current = undefined;
+    }
+    if (shouldAnimateClear) {
+      setIsClearingChat(true);
+      clearChatTimeoutRef.current = window.setTimeout(() => {
+        setMessages([]);
+        setIsClearingChat(false);
+        clearChatTimeoutRef.current = undefined;
+      }, CHAT_CLEAR_ANIMATION_MS);
+    } else {
+      setMessages([]);
+      setIsClearingChat(false);
+    }
+    countedUsageEventsRef.current = new Set();
+    activeRequestControllerRef.current = undefined;
+    activeAssistantIdRef.current = undefined;
+
+    if (!currentSessionId) {
+      setTimeout(() => inputRef.current?.focus(), 0);
+      return;
+    }
+
+    try {
+      await stopSession(currentSessionId);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to restart the chat.");
+    } finally {
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isClearingChat) {
+      return;
+    }
 
     const prompt = draft.trim();
     if (!prompt) {
@@ -357,6 +420,7 @@ export function App() {
     const assistantId = crypto.randomUUID();
     const requestController = new AbortController();
     const shouldKeepComposerTransparent = isWelcomeMode;
+    setHasEnteredChat(true);
     manualStopRequestedRef.current = false;
     activeRequestControllerRef.current = requestController;
     activeAssistantIdRef.current = assistantId;
@@ -373,6 +437,7 @@ export function App() {
       }, WELCOME_TRANSITION_MS);
     }
     setIsSending(true);
+    setIsClearingChat(false);
     setMessages((current) => [
       ...current,
       { id: crypto.randomUUID(), role: "user", content: prompt, isNew: true },
@@ -646,6 +711,7 @@ export function App() {
           bottomRef={bottomRef}
           copiedMessageId={copiedMessageId}
           expandedUserMessages={expandedUserMessages}
+          isClearing={isClearingChat}
           isDarkMode={isDarkMode}
           messages={messages}
           onAnimationDone={handleMessageAnimationDone}
@@ -715,15 +781,26 @@ export function App() {
                 {tokenUsageText}
               </span>
             </div>
-            <button
-              type={showStopButton ? "button" : "submit"}
-              aria-label={showStopButton ? "Stop response" : "Send message"}
-              className={`send-button ${showStopButton ? "stop-button" : ""}`}
-              onClick={showStopButton ? handleStopRequest : undefined}
-              title={showStopButton ? "停止" : "发送"}
-            >
-              {showStopButton ? <StopIcon /> : <SendIcon />}
-            </button>
+            <div className="composer-action-buttons">
+              <button
+                type="button"
+                aria-label="New chat"
+                className="new-chat-button"
+                onClick={handleNewChat}
+                title="新聊天"
+              >
+                <PlusIcon />
+              </button>
+              <button
+                type={showStopButton ? "button" : "submit"}
+                aria-label={showStopButton ? "Stop response" : "Send message"}
+                className={`send-button ${showStopButton ? "stop-button" : ""}`}
+                onClick={showStopButton ? handleStopRequest : undefined}
+                title={showStopButton ? "停止" : "发送"}
+              >
+                {showStopButton ? <StopIcon /> : <SendIcon />}
+              </button>
+            </div>
           </div>
         </LiquidGlassInput>
       </div>

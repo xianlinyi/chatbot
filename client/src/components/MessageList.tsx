@@ -8,6 +8,7 @@ type MessageListProps = {
   bottomRef: RefObject<HTMLDivElement | null>;
   copiedMessageId: string | null;
   expandedUserMessages: Record<string, boolean>;
+  isClearing: boolean;
   isDarkMode: boolean;
   messages: ChatMessage[];
   onAnimationDone: (messageId: string) => void;
@@ -23,6 +24,7 @@ export function MessageList({
   bottomRef,
   copiedMessageId,
   expandedUserMessages,
+  isClearing,
   isDarkMode,
   messages,
   onAnimationDone,
@@ -33,7 +35,7 @@ export function MessageList({
   userMessageBodyRefs
 }: MessageListProps) {
   return (
-    <section className="conversation" aria-label="Conversation">
+    <section className={`conversation ${isClearing ? "clearing" : ""}`} aria-label="Conversation">
       <div className="message-list">
         {messages.map((message) => (
           <article

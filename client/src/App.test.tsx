@@ -164,6 +164,98 @@ describe("App", () => {
     expect(payload.size).toBe(JSON.stringify({ sessionId: "session-1" }).length);
   });
 
+  it("closes the current session and lazily starts a fresh chat from the plus button", async () => {
+    let messageRequestCount = 0;
+    const messageBodies: unknown[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/agent-info") {
+        return jsonResponse({
+          app: { name: "Test Chatbot", icon: "spark" },
+          agent: {
+            provider: "github-copilot",
+            model: "test-model",
+            auth: { mode: "token", tokenType: "fine-grained-pat", hasToken: true },
+            instructions: "Test instructions",
+            customAgents: [],
+            skillDirectories: [],
+            disabledSkills: [],
+            mcpServers: {},
+            permissions: { mode: "allow-all" },
+            persistence: { enabled: false, scope: "memory-only" }
+          }
+        });
+      }
+
+      if (url === "/api/messages" && init?.method === "POST") {
+        messageRequestCount += 1;
+        messageBodies.push(JSON.parse(String(init.body)));
+        const sessionId = `session-${messageRequestCount}`;
+        const content = messageRequestCount === 1 ? "first answer" : "second answer";
+
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(`event: session\ndata: {"type":"session","sessionId":"${sessionId}","created":true}\n\n`)
+              );
+              controller.enqueue(
+                encoder.encode(`event: delta\ndata: {"type":"delta","content":"${content}"}\n\n`)
+              );
+              controller.enqueue(encoder.encode('event: done\ndata: {"type":"done"}\n\n'));
+              controller.close();
+            }
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" }
+          }
+        );
+      }
+
+      if (url === "/api/stop" && init?.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("github-copilot · test-model · token");
+    await userEvent.type(screen.getByLabelText("Message"), "Hi");
+    await userEvent.keyboard("{Enter}");
+    expect(await screen.findByText("first answer")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "New chat" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/stop",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ sessionId: "session-1" })
+        })
+      )
+    );
+    expect(document.querySelector(".conversation")).toHaveClass("clearing");
+    await waitFor(() => expect(screen.queryByText("Hi")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("first answer")).not.toBeInTheDocument());
+    expect(document.querySelector(".conversation")).not.toHaveClass("clearing");
+    expect(document.querySelector(".shell")).toHaveClass("chat-active");
+    expect(document.querySelector(".shell")).not.toHaveClass("welcome");
+
+    await userEvent.type(screen.getByLabelText("Message"), "Again");
+    await userEvent.keyboard("{Enter}");
+    expect(await screen.findByText("second answer")).toBeInTheDocument();
+    expect(messageBodies).toEqual([
+      { message: "Hi" },
+      { message: "Again" }
+    ]);
+  });
+
   it("switches the send button to stop while a response is streaming", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
