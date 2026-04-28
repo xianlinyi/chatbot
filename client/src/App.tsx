@@ -1,6 +1,23 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { answerUserInput, enqueuePrompt, fetchAgentInfo, sendMessage, stopSession, stopSessionOnPageExit } from "./api.js";
-import type { AgentInfoResponse, ChatDisplayEvent, ChatMessage, InputRequest } from "./types.js";
+import {
+  answerElicitation,
+  answerUserInput,
+  enqueuePrompt,
+  fetchAgentInfo,
+  sendMessage,
+  stopSession,
+  stopSessionOnPageExit
+} from "./api.js";
+import type {
+  AgentInfoResponse,
+  ChatDisplayEvent,
+  ChatMessage,
+  ElicitationFieldValue,
+  ElicitationRequest,
+  ElicitationResult,
+  ElicitationSchemaField,
+  InputRequest
+} from "./types.js";
 import { areBooleanRecordsEqual, displayEventTypeFor } from "./chat/displayEvents.js";
 import {
   addTokenUsage,
@@ -27,7 +44,9 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [pendingInputRequest, setPendingInputRequest] = useState<InputRequest | undefined>();
+  const [pendingElicitationRequest, setPendingElicitationRequest] = useState<ElicitationRequest | undefined>();
   const [answeredInputRequestIds, setAnsweredInputRequestIds] = useState<Set<string>>(() => new Set());
+  const [answeredElicitationRequestIds, setAnsweredElicitationRequestIds] = useState<Set<string>>(() => new Set());
   const [tokenUsage, setTokenUsage] = useState<TokenUsage>(EMPTY_TOKEN_USAGE);
   const [isFlashing, setIsFlashing] = useState(false);
   const [isComposerDropping, setIsComposerDropping] = useState(false);
@@ -318,7 +337,9 @@ export function App() {
     setDraft("");
     setIsSending(false);
     setPendingInputRequest(undefined);
+    setPendingElicitationRequest(undefined);
     setAnsweredInputRequestIds(new Set());
+    setAnsweredElicitationRequestIds(new Set());
     setTokenUsage(EMPTY_TOKEN_USAGE);
     setExpandedUserMessages({});
     setOverflowingUserMessages({});
@@ -538,12 +559,18 @@ export function App() {
             allowFreeform: event.allowFreeform
           };
           setPendingInputRequest(request);
-          appendInputRequest(assistantId, request);
-          appendDisplayEvent(assistantId, {
-            type: "input_request",
-            eventType: "input_request",
-            data: request
-          });
+        }
+
+        if (event.type === "elicitation_request") {
+          const request = {
+            requestId: event.requestId,
+            message: event.message,
+            requestedSchema: event.requestedSchema,
+            mode: event.mode,
+            elicitationSource: event.elicitationSource,
+            url: event.url
+          };
+          setPendingElicitationRequest(request);
         }
 
         if (event.type === "error") {
@@ -601,16 +628,6 @@ export function App() {
     }
 
     return trimmed ? `${trimmed}\n\nAbort` : "Abort";
-  }
-
-  function appendInputRequest(assistantId: string, request: InputRequest) {
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === assistantId
-          ? { ...message, inputRequests: [...(message.inputRequests ?? []), request] }
-          : message
-      )
-    );
   }
 
   function appendDisplayEvent(assistantId: string, displayEvent: ChatDisplayEvent, visibleText = "") {
@@ -674,6 +691,32 @@ export function App() {
     }
   }
 
+  async function handleElicitationResponse(requestId: string, result: ElicitationResult) {
+    if (!sessionId) {
+      setError("No active session for this answer.");
+      return;
+    }
+
+    if (answeredElicitationRequestIds.has(requestId)) {
+      return;
+    }
+
+    setError(undefined);
+    setAnsweredElicitationRequestIds((current) => new Set(current).add(requestId));
+
+    try {
+      await answerElicitation(sessionId, requestId, result);
+      setPendingElicitationRequest((current) => (current?.requestId === requestId ? undefined : current));
+    } catch (caught) {
+      setAnsweredElicitationRequestIds((current) => {
+        const next = new Set(current);
+        next.delete(requestId);
+        return next;
+      });
+      setError(caught instanceof Error ? caught.message : "Unable to answer Copilot.");
+    }
+  }
+
   const handleCopy = (content: string, messageId: string) => {
     navigator.clipboard.writeText(content).then(() => {
       setCopiedMessageId(messageId);
@@ -696,7 +739,7 @@ export function App() {
 
   return (
     <div className="app-container">
-      <DotPulseBackdrop isActive={isSending || Boolean(pendingInputRequest)} isDarkMode={isDarkMode} />
+      <DotPulseBackdrop isActive={isSending || Boolean(pendingInputRequest) || Boolean(pendingElicitationRequest)} isDarkMode={isDarkMode} />
       <main className={`shell ${isWelcomeMode ? "welcome" : "chat-active"}`}>
         <ChatHeader
           agentInfo={agentInfo}
@@ -721,6 +764,14 @@ export function App() {
           overflowingUserMessages={overflowingUserMessages}
           userMessageBodyRefs={userMessageBodyRefs}
         />
+
+        {pendingElicitationRequest ? (
+          <ElicitationDialog
+            request={pendingElicitationRequest}
+            disabled={answeredElicitationRequestIds.has(pendingElicitationRequest.requestId)}
+            onRespond={handleElicitationResponse}
+          />
+        ) : null}
 
       <div className="composer-container">
         <LiquidGlassInput
@@ -807,4 +858,231 @@ export function App() {
       </main>
     </div>
   );
+}
+
+function ElicitationDialog({
+  request,
+  disabled,
+  onRespond
+}: {
+  request: ElicitationRequest;
+  disabled: boolean;
+  onRespond: (requestId: string, result: ElicitationResult) => void;
+}) {
+  const fields = request.requestedSchema?.properties ?? {};
+  const fieldEntries = Object.entries(fields);
+  const required = new Set(request.requestedSchema?.required ?? []);
+  const [values, setValues] = useState<Record<string, ElicitationFieldValue>>(() => initialElicitationValues(fields));
+  const selectionField = fieldEntries.find(([, field]) => field.type === "string" && Array.isArray(field.enum));
+  const freeformField = fields.answer?.type === "string" && !fields.answer.enum ? fields.answer : undefined;
+
+  function setValue(key: string, value: ElicitationFieldValue) {
+    setValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function submit(action: ElicitationResult["action"], content?: Record<string, ElicitationFieldValue>) {
+    onRespond(request.requestId, action === "accept" ? { action, content: content ?? values } : { action });
+  }
+
+  function submitSelection(key: string, value: string) {
+    submit("accept", { [key]: value });
+  }
+
+  function submitField(key: string, value: ElicitationFieldValue | undefined) {
+    if (value === undefined || !isSubmittableFieldValue(value)) {
+      return;
+    }
+
+    submit("accept", { [key]: value });
+  }
+
+  if (request.mode === "url" && request.url) {
+    return (
+      <div className="elicitation-backdrop" role="presentation">
+        <section aria-modal="true" className="elicitation-dialog choice-request-card waiting" role="dialog">
+          <div className="choice-request-prompt">{request.elicitationSource ?? "需要用户输入"}</div>
+          <div className="choice-request-question">{request.message}</div>
+          <div className="choice-request-options">
+            <a className="choice-request-option elicitation-link-option" href={request.url} rel="noreferrer" target="_blank">
+              打开
+            </a>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="elicitation-backdrop" role="presentation">
+      <section aria-modal="true" className="elicitation-dialog choice-request-card waiting" role="dialog">
+        <div className="choice-request-prompt">{request.elicitationSource ?? "需要用户输入"}</div>
+        <div className="choice-request-question">{request.message}</div>
+        <div className="elicitation-form">
+          {selectionField ? (
+            <div className="choice-request-options" aria-label={selectionField[1].title ?? "选项"}>
+              {selectionField[1].enum?.map((option) => (
+                <button
+                  className="choice-request-option"
+                  disabled={disabled}
+                  key={option}
+                  onClick={() => submitSelection(selectionField[0], option)}
+                  type="button"
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {fieldEntries
+            .filter(([key]) => key !== selectionField?.[0])
+            .map(([key, field]) => (
+              <div className="elicitation-field-group" key={key}>
+                {freeformField && selectionField && key === "answer" ? (
+                  <div className="elicitation-divider">或输入自定义回答</div>
+                ) : null}
+                <ElicitationField
+                  disabled={disabled}
+                  field={field}
+                  isRequired={required.has(key)}
+                  name={key}
+                  onChange={(value) => setValue(key, value)}
+                  onSubmit={(value) => submitField(key, value)}
+                  value={values[key]}
+                />
+              </div>
+            ))}
+          {!fieldEntries.length ? (
+            <ElicitationField
+              disabled={disabled}
+              field={{ type: "string", title: "回答", minLength: 1 }}
+              isRequired
+              name="answer"
+              onChange={(value) => setValue("answer", value)}
+              onSubmit={(value) => submitField("answer", value)}
+              value={values.answer}
+            />
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ElicitationField({
+  name,
+  field,
+  value,
+  isRequired,
+  disabled,
+  onChange,
+  onSubmit
+}: {
+  name: string;
+  field: ElicitationSchemaField;
+  value: ElicitationFieldValue | undefined;
+  isRequired: boolean;
+  disabled: boolean;
+  onChange: (value: ElicitationFieldValue) => void;
+  onSubmit: (value: ElicitationFieldValue | undefined) => void;
+}) {
+  const label = field.title ?? name;
+  const inputId = `elicitation-${name}`;
+  const canSubmit = isSubmittableFieldValue(value);
+
+  function submitInput(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit(value);
+  }
+
+  if (field.type === "boolean") {
+    return (
+      <label className="choice-request-freeform elicitation-checkbox" htmlFor={inputId}>
+        <input
+          checked={Boolean(value)}
+          disabled={disabled}
+          id={inputId}
+          onChange={(event) => {
+            onChange(event.target.checked);
+            onSubmit(event.target.checked);
+          }}
+          type="checkbox"
+        />
+        <span>{label}</span>
+      </label>
+    );
+  }
+
+  if (field.type === "number" || field.type === "integer") {
+    return (
+      <form className="choice-request-freeform" onSubmit={submitInput}>
+        <input
+          className="choice-request-freeform-input"
+          disabled={disabled}
+          id={inputId}
+          max={field.maximum}
+          min={field.minimum}
+          onChange={(event) => onChange(Number(event.target.value))}
+          required={isRequired}
+          step={field.type === "integer" ? 1 : "any"}
+          type="number"
+          value={typeof value === "number" ? value : ""}
+          aria-label={label}
+        />
+        <button
+          aria-label="提交输入"
+          className="choice-request-freeform-submit"
+          disabled={disabled || !canSubmit}
+          title="提交"
+          type="submit"
+        >
+          <SendIcon />
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <form className="choice-request-freeform" onSubmit={submitInput}>
+      <input
+        className="choice-request-freeform-input"
+        disabled={disabled}
+        id={inputId}
+        maxLength={field.maxLength}
+        minLength={field.minLength}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="please input"
+        required={isRequired}
+        type="text"
+        value={typeof value === "string" ? value : ""}
+        aria-label={label}
+      />
+      <button
+        aria-label="提交输入"
+        className="choice-request-freeform-submit"
+        disabled={disabled || !canSubmit}
+        title="提交"
+        type="submit"
+      >
+        <SendIcon />
+      </button>
+    </form>
+  );
+}
+
+function initialElicitationValues(fields: Record<string, ElicitationSchemaField>): Record<string, ElicitationFieldValue> {
+  return Object.fromEntries(
+    Object.entries(fields).flatMap(([key, field]) => (field.default === undefined ? [] : [[key, field.default]]))
+  );
+}
+
+function isSubmittableFieldValue(value: ElicitationFieldValue | undefined): boolean {
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+
+  return value !== undefined;
 }

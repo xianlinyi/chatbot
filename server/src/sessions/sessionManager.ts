@@ -1,4 +1,4 @@
-import type { AgentProvider, AgentStreamEvent } from "../providers/types.js";
+import type { AgentProvider, AgentStreamEvent, ElicitationResult } from "../providers/types.js";
 
 export type ChatSessionRecord = {
   id: string;
@@ -66,6 +66,15 @@ export class SessionManager {
     }
 
     return this.provider.respondToUserInput(sessionId, requestId, answer, wasFreeform);
+  }
+
+  async respondToElicitation(sessionId: string, requestId: string, result: ElicitationResult): Promise<boolean> {
+    const session = this.get(sessionId);
+    if (!session) {
+      return false;
+    }
+
+    return this.provider.respondToElicitation(sessionId, requestId, result);
   }
 
   async delete(sessionId: string): Promise<boolean> {

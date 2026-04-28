@@ -215,12 +215,6 @@ function parseDisplayEvents(events: ChatDisplayEvent[]): ParsedNode[] {
         block.content = `${block.content ?? ""}${content}`;
       }
 
-      for (const request of toolRequests) {
-        const askUserBlock = createAskUserBlock(request);
-        if (askUserBlock) {
-          pushBlock(askUserBlock);
-        }
-      }
       continue;
     }
 
@@ -236,23 +230,6 @@ function parseDisplayEvents(events: ChatDisplayEvent[]): ParsedNode[] {
       }
 
       removeSyntheticAskUserBlock(parentNodes, currentTurn, askUserKey, question, choices);
-      pushBlock(
-        choices.length || allowFreeform
-          ? {
-              type: "choice",
-              requestId,
-              question,
-              choices,
-              allowFreeform,
-              askUserKey
-            }
-          : {
-              type: "message",
-              requestId,
-              content: question,
-              askUserKey
-            }
-      );
       continue;
     }
 

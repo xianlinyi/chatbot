@@ -1628,6 +1628,86 @@ html.dark .composer-hints {
   font-size: 14px;
 }
 
+.elicitation-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(9, 9, 11, 0.34);
+  backdrop-filter: blur(14px);
+}
+
+.elicitation-dialog {
+  width: min(520px, 100%);
+  max-height: min(720px, calc(100vh - 48px));
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 8px;
+  background: rgba(250, 250, 250, 0.92);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.26);
+  color: #18181b;
+}
+
+.elicitation-dialog.choice-request-card {
+  margin: 0;
+  padding: 22px;
+}
+
+html.dark .elicitation-dialog {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(24, 24, 27, 0.94);
+  color: #f4f4f5;
+}
+
+.elicitation-form {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.elicitation-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.elicitation-checkbox {
+  cursor: pointer;
+}
+
+.elicitation-checkbox input {
+  margin: 0;
+}
+
+.elicitation-divider {
+  color: currentColor;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.58;
+}
+
+.elicitation-link-option {
+  text-decoration: none;
+}
+
+.elicitation-dialog .choice-request-freeform-submit {
+  border: 0;
+  box-shadow: none;
+}
+
+.elicitation-dialog .choice-request-freeform-submit:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-color);
+}
+
+html.dark .elicitation-dialog .choice-request-freeform-submit:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text-color);
+}
+
 @media (max-width: 640px) {
 }
 

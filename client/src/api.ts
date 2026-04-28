@@ -1,4 +1,4 @@
-import type { AgentInfoResponse, StreamEvent } from "./types.js";
+import type { AgentInfoResponse, ElicitationResult, StreamEvent } from "./types.js";
 
 export async function fetchAgentInfo(signal?: AbortSignal): Promise<AgentInfoResponse> {
   const response = await fetch("/api/agent-info", { signal });
@@ -63,6 +63,25 @@ export async function answerUserInput(
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ sessionId, requestId, answer, wasFreeform })
+  });
+
+  if (!response.ok) {
+    const error = await safeError(response);
+    throw new Error(error);
+  }
+}
+
+export async function answerElicitation(
+  sessionId: string,
+  requestId: string,
+  result: ElicitationResult
+): Promise<void> {
+  const response = await fetch("/api/elicitation", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sessionId, requestId, result })
   });
 
   if (!response.ok) {

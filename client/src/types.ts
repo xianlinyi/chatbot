@@ -46,7 +46,7 @@ export type ChatMessage = {
 };
 
 export type ChatDisplayEvent = {
-  type: "assistant_event" | "session_event" | "tool" | "input_request";
+  type: "assistant_event" | "session_event" | "tool" | "input_request" | "elicitation_request";
   eventType: string;
   data: Record<string, unknown>;
 };
@@ -56,6 +56,41 @@ export type InputRequest = {
   question: string;
   choices?: string[];
   allowFreeform: boolean;
+};
+
+export type ElicitationFieldValue = string | number | boolean | string[];
+
+export type ElicitationSchemaField = {
+  type: "string" | "number" | "integer" | "boolean";
+  title?: string;
+  description?: string;
+  enum?: string[];
+  enumNames?: string[];
+  minLength?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
+  default?: ElicitationFieldValue;
+};
+
+export type ElicitationSchema = {
+  type: "object";
+  properties: Record<string, ElicitationSchemaField>;
+  required?: string[];
+};
+
+export type ElicitationResult = {
+  action: "accept" | "decline" | "cancel";
+  content?: Record<string, ElicitationFieldValue>;
+};
+
+export type ElicitationRequest = {
+  requestId: string;
+  message: string;
+  requestedSchema?: ElicitationSchema;
+  mode?: "form" | "url";
+  elicitationSource?: string;
+  url?: string;
 };
 
 export type UsageStats = {
@@ -101,6 +136,9 @@ export type StreamEvent =
       choices?: string[];
       allowFreeform: boolean;
     }
+  | ({
+      type: "elicitation_request";
+    } & ElicitationRequest)
   | {
       type: "done";
     }

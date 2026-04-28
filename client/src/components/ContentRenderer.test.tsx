@@ -20,7 +20,7 @@ describe("ContentRenderer turn labels", () => {
     expect(screen.getByText("完成后的回复")).toBeInTheDocument();
   });
 
-  it("renders ask_user cards with a collapsed turn label", () => {
+  it("shows ask_user status without rendering the question card in message history", () => {
     const { container, rerender } = render(
       <ContentRenderer
         content=""
@@ -41,7 +41,8 @@ describe("ContentRenderer turn labels", () => {
 
     expect(screen.getByText("正在询问用户")).toHaveClass("active");
     expect(container.querySelector(".assistant-turn-card-shell")).toBeNull();
-    expect(screen.getByText("请选择部署环境")).toBeInTheDocument();
+    expect(container.querySelector(".choice-request-card")).toBeNull();
+    expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
 
     rerender(
       <ContentRenderer
@@ -64,7 +65,8 @@ describe("ContentRenderer turn labels", () => {
 
     expect(screen.getByText("询问用户")).not.toHaveClass("active");
     expect(container.querySelector(".assistant-turn-card-shell")).toBeNull();
-    expect(screen.getByText("请选择部署环境")).toBeInTheDocument();
+    expect(container.querySelector(".choice-request-card")).toBeNull();
+    expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
   });
 
   it("collapses a completed special turn and expands it from the triangle toggle", async () => {
@@ -177,7 +179,7 @@ describe("ContentRenderer turn labels", () => {
     expect(codeBlock).toHaveTextContent('"limit": 3');
   });
 
-  it("renders ask_user tool request content as visible message text", () => {
+  it("does not render ask_user tool request content as message text", () => {
     render(
       <ContentRenderer
         content=""
@@ -200,11 +202,12 @@ describe("ContentRenderer turn labels", () => {
       />
     );
 
-    expect(screen.getByText("请选择部署环境")).toBeInTheDocument();
-    expect(screen.getByText("需要用户确认后继续")).toBeInTheDocument();
+    expect(screen.getByText("询问用户")).not.toHaveClass("active");
+    expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
+    expect(screen.queryByText("需要用户确认后继续")).not.toBeInTheDocument();
   });
 
-  it("renders choice ask_user requests as a question and option card", () => {
+  it("does not render choice ask_user requests as a question and option card", () => {
     const { container } = render(
       <ContentRenderer
         content=""
@@ -232,17 +235,16 @@ describe("ContentRenderer turn labels", () => {
     );
 
     const card = container.querySelector(".choice-request-card");
-    expect(card).not.toBeNull();
-    expect(card).not.toHaveStyle({ border: "1px solid rgba(0, 0, 0, 0.16)" });
+    expect(card).toBeNull();
     expect(container.querySelector(".assistant-turn-card-shell")).toBeNull();
     expect(screen.getByText("询问用户")).not.toHaveClass("active");
-    expect(screen.getByText("请选择")).toHaveClass("choice-request-prompt");
-    expect(screen.getByText("请选择部署环境").closest(".choice-request-question")).toBeInTheDocument();
-    expect(screen.getByText("staging")).toHaveClass("choice-request-option");
-    expect(screen.getByText("production")).toHaveClass("choice-request-option");
+    expect(screen.queryByText("请选择")).not.toBeInTheDocument();
+    expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
+    expect(screen.queryByText("staging")).not.toBeInTheDocument();
+    expect(screen.queryByText("production")).not.toBeInTheDocument();
   });
 
-  it("renders freeform-only ask_user requests as input cards", () => {
+  it("does not render freeform-only ask_user requests as input cards", () => {
     render(
       <ContentRenderer
         content=""
@@ -267,12 +269,12 @@ describe("ContentRenderer turn labels", () => {
       />
     );
 
-    expect(screen.getByText("请输入")).toHaveClass("choice-request-prompt");
-    expect(screen.getByRole("textbox", { name: "请输入" })).toBeInTheDocument();
+    expect(screen.getByText("正在询问用户")).toHaveClass("active");
+    expect(screen.queryByText("请输入")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "请输入" })).not.toBeInTheDocument();
   });
 
-  it("adds a freeform input below choices when freeform is allowed", async () => {
-    const user = userEvent.setup();
+  it("does not add a freeform input below input_request choices in message history", () => {
     const onChoiceSelect = vi.fn();
 
     render(
@@ -295,17 +297,14 @@ describe("ContentRenderer turn labels", () => {
       />
     );
 
-    expect(screen.getByText("请选择")).toHaveClass("choice-request-prompt");
-    expect(screen.getByRole("button", { name: "production" })).toBeInTheDocument();
-    const input = screen.getByRole("textbox", { name: "自定义输入" });
-    await user.type(input, "preview");
-    await user.click(screen.getByRole("button", { name: "提交自定义输入" }));
-
-    expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "preview", true);
+    expect(screen.getByText("正在询问用户")).toHaveClass("active");
+    expect(screen.queryByText("请选择")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "production" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "自定义输入" })).not.toBeInTheDocument();
+    expect(onChoiceSelect).not.toHaveBeenCalled();
   });
 
-  it("hides a choice card immediately after selecting an option", async () => {
-    const user = userEvent.setup();
+  it("does not render input_request choice cards in message history", () => {
     const onChoiceSelect = vi.fn();
 
     render(
@@ -327,10 +326,10 @@ describe("ContentRenderer turn labels", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "production" }));
-
+    expect(screen.getByText("正在询问用户")).toHaveClass("active");
     expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
-    expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "production", false);
+    expect(screen.queryByRole("button", { name: "production" })).not.toBeInTheDocument();
+    expect(onChoiceSelect).not.toHaveBeenCalled();
   });
 
   it("renders ask_user tool calls in collapsed detail blocks that can expand", async () => {
@@ -364,7 +363,8 @@ describe("ContentRenderer turn labels", () => {
 
     expect(screen.getByText("正在询问用户")).toHaveClass("active");
     expect(container.querySelector(".assistant-turn-card-shell")).toHaveClass("collapsed");
-    expect(screen.getByText("请选择部署环境")).toBeInTheDocument();
+    expect(container.querySelector(".choice-request-card")).toBeNull();
+    expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
 
     const toggle = screen.getByRole("button", { name: "展开工具详情" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -377,7 +377,7 @@ describe("ContentRenderer turn labels", () => {
     expect(container.querySelector(".tool-execution-command code")).toHaveTextContent("请选择部署环境");
   });
 
-  it("treats a freeform choice marker as allowing custom input", () => {
+  it("does not render freeform choice markers in message history", () => {
     render(
       <ContentRenderer
         content=""
@@ -402,11 +402,12 @@ describe("ContentRenderer turn labels", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "staging" })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "自定义输入" })).toBeInTheDocument();
+    expect(screen.getByText("正在询问用户")).toHaveClass("active");
+    expect(screen.queryByRole("button", { name: "staging" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "自定义输入" })).not.toBeInTheDocument();
   });
 
-  it("deduplicates ask_user tool requests when the matching input request arrives", () => {
+  it("does not render ask_user cards when the matching input request arrives", () => {
     const { container } = render(
       <ContentRenderer
         content=""
@@ -442,14 +443,13 @@ describe("ContentRenderer turn labels", () => {
       />
     );
 
-    expect(container.querySelectorAll(".choice-request-card")).toHaveLength(1);
-    expect(screen.getAllByText("请选择")).toHaveLength(1);
-    expect(screen.getAllByText("请选择部署环境")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "production" })).toBeEnabled();
+    expect(container.querySelectorAll(".choice-request-card")).toHaveLength(0);
+    expect(screen.queryByText("请选择")).not.toBeInTheDocument();
+    expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "production" })).not.toBeInTheDocument();
   });
 
-  it("deduplicates synthetic ask_user cards even when freeform flags differ", async () => {
-    const user = userEvent.setup();
+  it("does not render synthetic ask_user cards even when freeform flags differ", () => {
     const onChoiceSelect = vi.fn();
 
     render(
@@ -488,15 +488,13 @@ describe("ContentRenderer turn labels", () => {
       />
     );
 
-    expect(screen.getAllByText("请选择部署环境")).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: "production" }));
-
     expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
-    expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "production", false);
+    expect(screen.queryByRole("button", { name: "production" })).not.toBeInTheDocument();
+    expect(screen.queryByText("请选择部署环境")).not.toBeInTheDocument();
+    expect(onChoiceSelect).not.toHaveBeenCalled();
   });
 
-  it("calls back with the selected input request choice", async () => {
-    const user = userEvent.setup();
+  it("does not call back from input_request choices in message history", () => {
     const onChoiceSelect = vi.fn();
 
     render(
@@ -519,9 +517,9 @@ describe("ContentRenderer turn labels", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "production" }));
-
-    expect(onChoiceSelect).toHaveBeenCalledWith("request-1", "production", false);
+    expect(screen.getByText("询问用户")).not.toHaveClass("active");
+    expect(screen.queryByRole("button", { name: "production" })).not.toBeInTheDocument();
+    expect(onChoiceSelect).not.toHaveBeenCalled();
   });
 
   it("hides a choice request card after the request is answered", () => {

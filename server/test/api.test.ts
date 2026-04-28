@@ -68,6 +68,44 @@ describe("API routes", () => {
     await app.close();
   });
 
+  it("forwards elicitation answers to the active agent session", async () => {
+    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider() });
+    await app.inject({
+      method: "POST",
+      url: "/api/messages",
+      payload: { message: "hello" }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/elicitation",
+      payload: {
+        sessionId: "session-1",
+        requestId: "elicitation-1",
+        result: { action: "accept", content: { answer: "yes" } }
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+
+    await app.close();
+  });
+
+  it("rejects malformed elicitation answers", async () => {
+    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider() });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/elicitation",
+      payload: { sessionId: "session-1", requestId: "elicitation-1", result: { action: "maybe" } }
+    });
+
+    expect(response.statusCode).toBe(400);
+
+    await app.close();
+  });
+
   it("enqueues prompts for an active agent session", async () => {
     const provider = new MockAgentProvider();
     const app = await buildApp({ config: testConfig, provider });

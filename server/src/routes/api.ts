@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "../config/types.js";
+import type { ElicitationResult } from "../providers/types.js";
 import type { AgentProvider } from "../providers/types.js";
 import type { SessionManager } from "../sessions/sessionManager.js";
 import { redactSecrets } from "../utils/redact.js";
@@ -121,6 +122,32 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
     }
   );
 
+  app.post<{ Body: { sessionId?: unknown; requestId?: unknown; result?: unknown } }>(
+    "/api/elicitation",
+    async (request, reply) => {
+      const { sessionId, requestId, result } = request.body ?? {};
+      const activeSessionId = requiredString(sessionId);
+      const activeRequestId = requiredString(requestId);
+      const elicitationResult = parseElicitationResult(result);
+      if (!activeSessionId) {
+        return reply.code(400).send({ error: "sessionId is required." });
+      }
+      if (!activeRequestId) {
+        return reply.code(400).send({ error: "requestId is required." });
+      }
+      if (!elicitationResult) {
+        return reply.code(400).send({ error: "result must be a valid elicitation response." });
+      }
+
+      const accepted = await options.sessions.respondToElicitation(activeSessionId, activeRequestId, elicitationResult);
+      if (!accepted) {
+        return reply.code(404).send({ error: "Unknown or expired elicitation request." });
+      }
+
+      return { ok: true };
+    }
+  );
+
   app.post<{ Body: { sessionId?: unknown } }>("/api/stop", async (request, reply) => {
     const requestedSessionId = optionalString(request.body?.sessionId);
     if (requestedSessionId) {
@@ -135,4 +162,24 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
     await options.provider.stop();
     return { ok: true };
   });
+}
+
+function parseElicitationResult(value: unknown): ElicitationResult | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const result = value as { action?: unknown; content?: unknown };
+  if (result.action !== "accept" && result.action !== "decline" && result.action !== "cancel") {
+    return undefined;
+  }
+
+  if (result.content !== undefined && (!result.content || typeof result.content !== "object" || Array.isArray(result.content))) {
+    return undefined;
+  }
+
+  return {
+    action: result.action,
+    content: result.content as ElicitationResult["content"]
+  };
 }

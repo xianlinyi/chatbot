@@ -1,5 +1,11 @@
 import type { AppConfig } from "../src/config/types.js";
-import type { AgentInfo, AgentProvider, AgentSession, AgentStreamEvent } from "../src/providers/types.js";
+import type {
+  AgentInfo,
+  AgentProvider,
+  AgentSession,
+  AgentStreamEvent,
+  ElicitationResult
+} from "../src/providers/types.js";
 
 export const testConfig: AppConfig = {
   server: {
@@ -101,6 +107,10 @@ export class MockAgentProvider implements AgentProvider {
     _wasFreeform: boolean
   ): Promise<boolean> {
     return sessionId === "session-1" && requestId === "request-1" && Boolean(answer);
+  }
+
+  async respondToElicitation(sessionId: string, requestId: string, result: ElicitationResult): Promise<boolean> {
+    return sessionId === "session-1" && requestId === "elicitation-1" && result.action === "accept";
   }
 
   async closeSession(sessionId: string): Promise<void> {

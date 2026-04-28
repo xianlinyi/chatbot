@@ -459,7 +459,7 @@ describe("App", () => {
     expect(screen.getByText("world")).toBeInTheDocument();
   });
 
-  it("returns clicked input choices to Copilot as non-freeform answers", async () => {
+  it("does not render legacy input request choices in the bot message history", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
@@ -518,23 +518,160 @@ describe("App", () => {
     expect(document.body.classList.contains("request-active")).toBe(true);
     expect(await screen.findByRole("button", { name: "Stop response" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Send message" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "production" })).not.toBeInTheDocument();
+    expect(document.querySelector("article.message.assistant .choice-request-card")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/user-input", expect.anything());
+    expect(document.querySelectorAll("article.message.user")).toHaveLength(1);
+  });
+
+  it("returns elicitation choices through the elicitation API", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/agent-info") {
+        return jsonResponse({
+          app: { name: "Test Chatbot", icon: "spark" },
+          agent: {
+            provider: "github-copilot",
+            model: "test-model",
+            auth: { mode: "token", tokenType: "fine-grained-pat", hasToken: true },
+            instructions: undefined,
+            customAgents: [],
+            skillDirectories: [],
+            disabledSkills: [],
+            mcpServers: {},
+            permissions: { mode: "allow-all" },
+            persistence: { enabled: false, scope: "memory-only" }
+          }
+        });
+      }
+
+      if (url === "/api/messages" && init?.method === "POST") {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode('event: session\ndata: {"type":"session","sessionId":"session-1","created":true}\n\n')
+              );
+              controller.enqueue(
+                encoder.encode(
+                  'event: elicitation_request\ndata: {"type":"elicitation_request","requestId":"elicitation-1","message":"请选择部署环境","requestedSchema":{"type":"object","properties":{"selection":{"type":"string","title":"选择","enum":["staging","production"]}},"required":["selection"]}}\n\n'
+                )
+              );
+            }
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" }
+          }
+        );
+      }
+
+      if (url === "/api/elicitation" && init?.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("github-copilot · test-model · token");
+    await userEvent.type(screen.getByLabelText("Message"), "Hi");
+    await userEvent.keyboard("{Enter}");
+    expect(document.querySelector("article.message.assistant .choice-request-card")).toBeNull();
+    expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "提交" })).not.toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: "production" }));
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/user-input",
+        "/api/elicitation",
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
             sessionId: "session-1",
-            requestId: "request-1",
-            answer: "production",
-            wasFreeform: false
+            requestId: "elicitation-1",
+            result: { action: "accept", content: { selection: "production" } }
           })
         })
       )
     );
-    expect(document.querySelectorAll("article.message.user")).toHaveLength(1);
+  });
+
+  it("returns elicitation freeform input from the inline send button", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url === "/api/agent-info") {
+        return jsonResponse({
+          app: { name: "Test Chatbot", icon: "spark" },
+          agent: {
+            provider: "github-copilot",
+            model: "test-model",
+            auth: { mode: "token", tokenType: "fine-grained-pat", hasToken: true },
+            instructions: undefined,
+            customAgents: [],
+            skillDirectories: [],
+            disabledSkills: [],
+            mcpServers: {},
+            permissions: { mode: "allow-all" },
+            persistence: { enabled: false, scope: "memory-only" }
+          }
+        });
+      }
+
+      if (url === "/api/messages" && init?.method === "POST") {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode('event: session\ndata: {"type":"session","sessionId":"session-1","created":true}\n\n')
+              );
+              controller.enqueue(
+                encoder.encode(
+                  'event: elicitation_request\ndata: {"type":"elicitation_request","requestId":"elicitation-2","message":"请输入提交信息","requestedSchema":{"type":"object","properties":{"answer":{"type":"string","title":"回答","minLength":1}},"required":["answer"]}}\n\n'
+                )
+              );
+            }
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "text/event-stream" }
+          }
+        );
+      }
+
+      if (url === "/api/elicitation" && init?.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("github-copilot · test-model · token");
+    await userEvent.type(screen.getByLabelText("Message"), "Hi");
+    await userEvent.keyboard("{Enter}");
+    await userEvent.type(await screen.findByRole("textbox", { name: "回答" }), "ship it");
+    await userEvent.click(await screen.findByRole("button", { name: "提交输入" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/elicitation",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            sessionId: "session-1",
+            requestId: "elicitation-2",
+            result: { action: "accept", content: { answer: "ship it" } }
+          })
+        })
+      )
+    );
   });
 
   it("hides an ask_user input card after replying from the composer", async () => {
@@ -596,12 +733,29 @@ describe("App", () => {
     await screen.findByText("github-copilot · test-model · token");
     await userEvent.type(screen.getByLabelText("Message"), "Hi");
     await userEvent.keyboard("{Enter}");
-    expect(await screen.findByText("请输入提交信息")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Message")).toHaveAttribute("placeholder", "回答 Copilot 的问题")
+    );
+    expect(screen.queryByText("请输入提交信息")).not.toBeInTheDocument();
+    expect(document.querySelector("article.message.assistant .choice-request-card")).toBeNull();
 
     await userEvent.type(screen.getByLabelText("Message"), "test commit");
     await userEvent.keyboard("{Enter}");
 
-    await waitFor(() => expect(screen.queryByText("请输入提交信息")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/user-input",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            sessionId: "session-1",
+            requestId: "request-1",
+            answer: "test commit",
+            wasFreeform: true
+          })
+        })
+      )
+    );
     await act(async () => {
       resolveAnswer?.(jsonResponse({ ok: true }));
     });

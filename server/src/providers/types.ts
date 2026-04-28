@@ -33,6 +33,59 @@ export type AgentSession = {
   createdAt: string;
 };
 
+export type ElicitationFieldValue = string | number | boolean | string[];
+
+export type ElicitationSchemaField =
+  | {
+      type: "string";
+      title?: string;
+      description?: string;
+      enum?: string[];
+      enumNames?: string[];
+      minLength?: number;
+      maxLength?: number;
+      format?: "email" | "uri" | "date" | "date-time";
+      default?: string;
+    }
+  | {
+      type: "boolean";
+      title?: string;
+      description?: string;
+      default?: boolean;
+    }
+  | {
+      type: "number" | "integer";
+      title?: string;
+      description?: string;
+      minimum?: number;
+      maximum?: number;
+      default?: number;
+    };
+
+export type ElicitationSchema = {
+  type: "object";
+  properties: Record<string, ElicitationSchemaField>;
+  required?: string[];
+};
+
+export type ElicitationResult = {
+  action: "accept" | "decline" | "cancel";
+  content?: Record<string, ElicitationFieldValue>;
+};
+
+export type ElicitationRequest = {
+  requestId: string;
+  message: string;
+  requestedSchema?: ElicitationSchema;
+  mode?: "form" | "url";
+  elicitationSource?: string;
+  url?: string;
+};
+
+export type ElicitationContext = Omit<ElicitationRequest, "requestId"> & {
+  sessionId: string;
+};
+
 export type AgentStreamEvent =
   | { type: "session"; sessionId: string; created: boolean }
   | { type: "delta"; content: string }
@@ -47,6 +100,7 @@ export type AgentStreamEvent =
       choices?: string[];
       allowFreeform: boolean;
     }
+  | ({ type: "elicitation_request" } & ElicitationRequest)
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -56,6 +110,7 @@ export interface AgentProvider {
   sendMessageStream(sessionId: string, prompt: string): AsyncIterable<AgentStreamEvent>;
   enqueuePrompt(sessionId: string, prompt: string): Promise<boolean>;
   respondToUserInput(sessionId: string, requestId: string, answer: string, wasFreeform: boolean): Promise<boolean>;
+  respondToElicitation(sessionId: string, requestId: string, result: ElicitationResult): Promise<boolean>;
   closeSession(sessionId: string): Promise<void>;
   stop(): Promise<void>;
 }

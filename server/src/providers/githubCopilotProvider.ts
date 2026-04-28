@@ -1,6 +1,15 @@
 import { nanoid } from "nanoid";
 import type { AppConfig } from "../config/types.js";
-import type { AgentInfo, AgentProvider, AgentSession, AgentStreamEvent } from "./types.js";
+import type {
+  AgentInfo,
+  AgentProvider,
+  AgentSession,
+  AgentStreamEvent,
+  ElicitationContext,
+  ElicitationFieldValue,
+  ElicitationResult,
+  ElicitationSchema
+} from "./types.js";
 import type { CopilotEvent } from "./copilotResponseParser.js";
 
 type CopilotSession = {
@@ -10,6 +19,14 @@ type CopilotSession = {
   };
   send: (input: { prompt: string; mode?: "enqueue" | "immediate" }) => Promise<string>;
   sendAndWait: (input: { prompt: string; mode?: "enqueue" | "immediate" }, timeout?: number) => Promise<unknown>;
+  capabilities?: {
+    ui?: {
+      elicitation?: boolean;
+    };
+  };
+  ui?: {
+    elicitation: (params: { message: string; requestedSchema: ElicitationSchema }) => Promise<ElicitationResult>;
+  };
   disconnect?: () => Promise<void>;
 };
 
@@ -40,6 +57,11 @@ type PendingUserInput = {
   resolve: (answer: { answer: string; wasFreeform: boolean }) => void;
 };
 
+type PendingElicitation = {
+  sessionId: string;
+  resolve: (result: ElicitationResult) => void;
+};
+
 type AsyncQueue<T> = AsyncIterable<T> & { push: (item: T) => void; end: () => void };
 
 const RESPONSE_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -48,6 +70,7 @@ export class GithubCopilotAgentProvider implements AgentProvider {
   private readonly sessions = new Map<string, CopilotSession>();
   private readonly activeRuns = new Map<string, ActiveRun>();
   private readonly pendingUserInputs = new Map<string, PendingUserInput>();
+  private readonly pendingElicitations = new Map<string, PendingElicitation>();
   private clientPromise: Promise<CopilotClientLike> | undefined;
   private authPreflightPromise: Promise<void> | undefined;
 
@@ -107,7 +130,8 @@ export class GithubCopilotAgentProvider implements AgentProvider {
         disabledSkills: this.config.provider.disabledSkills,
         mcpServers: this.config.provider.mcpServers,
         onPermissionRequest: async () => ({ kind: "approved" }),
-        onUserInputRequest: (request: UserInputRequest) => this.requestUserInput(id, request)
+        onUserInputRequest: (request: UserInputRequest) => this.requestUserInput(id, request),
+        onElicitationRequest: (context: ElicitationContext) => this.handleElicitationRequest(context)
       });
     } catch (error) {
       this.logError("Failed to create Copilot session", error);
@@ -194,6 +218,11 @@ export class GithubCopilotAgentProvider implements AgentProvider {
         this.pendingUserInputs.delete(requestId);
       }
     }
+    for (const [requestId, pending] of this.pendingElicitations.entries()) {
+      if (pending.sessionId === sessionId) {
+        this.pendingElicitations.delete(requestId);
+      }
+    }
     await session?.disconnect?.();
   }
 
@@ -226,6 +255,17 @@ export class GithubCopilotAgentProvider implements AgentProvider {
 
     this.pendingUserInputs.delete(requestId);
     pending.resolve({ answer, wasFreeform });
+    return true;
+  }
+
+  async respondToElicitation(sessionId: string, requestId: string, result: ElicitationResult): Promise<boolean> {
+    const pending = this.pendingElicitations.get(requestId);
+    if (!pending || pending.sessionId !== sessionId) {
+      return false;
+    }
+
+    this.pendingElicitations.delete(requestId);
+    pending.resolve(result);
     return true;
   }
 
@@ -293,6 +333,11 @@ export class GithubCopilotAgentProvider implements AgentProvider {
     sessionId: string,
     request: UserInputRequest
   ): Promise<{ answer: string; wasFreeform: boolean }> {
+    const session = this.sessions.get(sessionId);
+    if (session?.ui?.elicitation) {
+      return this.requestUserInputViaElicitation(sessionId, session, request);
+    }
+
     const requestId = nanoid();
     const run = this.activeRuns.get(sessionId);
     this.log("Copilot requested user input", {
@@ -316,6 +361,74 @@ export class GithubCopilotAgentProvider implements AgentProvider {
 
     return new Promise((resolve) => {
       this.pendingUserInputs.set(requestId, { sessionId, resolve });
+    });
+  }
+
+  private async requestUserInputViaElicitation(
+    sessionId: string,
+    session: CopilotSession,
+    request: UserInputRequest
+  ): Promise<{ answer: string; wasFreeform: boolean }> {
+    const choices = request.choices?.filter((choice) => choice.length > 0) ?? [];
+    const allowFreeform = request.allowFreeform ?? true;
+    this.log("Requesting user input through elicitation RPC", {
+      sessionId,
+      questionLength: request.question.length,
+      choiceCount: choices.length,
+      allowFreeform
+    });
+
+    const result = await session.ui!.elicitation({
+      message: request.question,
+      requestedSchema: createUserInputElicitationSchema(request.question, choices, allowFreeform)
+    });
+
+    if (result.action !== "accept") {
+      return { answer: result.action, wasFreeform: true };
+    }
+
+    const content = result.content ?? {};
+    const freeformAnswer = stringField(content, "answer");
+    const selectedAnswer = stringField(content, "selection");
+    const answer = freeformAnswer || selectedAnswer || "";
+    if (!answer) {
+      return { answer: "cancel", wasFreeform: true };
+    }
+
+    return {
+      answer,
+      wasFreeform: Boolean(freeformAnswer) || !choices.includes(answer)
+    };
+  }
+
+  private handleElicitationRequest(context: ElicitationContext): Promise<ElicitationResult> {
+    const requestId = nanoid();
+    const sessionId = context.sessionId;
+    const run = this.activeRuns.get(sessionId);
+    this.log("Copilot requested elicitation", {
+      sessionId,
+      requestId,
+      mode: context.mode ?? "form",
+      source: context.elicitationSource,
+      hasSchema: Boolean(context.requestedSchema)
+    });
+
+    if (!run) {
+      return Promise.resolve({ action: "cancel" });
+    }
+
+    run.queue.push({
+      type: "elicitation_request",
+      requestId,
+      message: context.message,
+      requestedSchema: context.requestedSchema,
+      mode: context.mode,
+      elicitationSource: context.elicitationSource,
+      url: context.url
+    });
+
+    return new Promise((resolve) => {
+      this.pendingElicitations.set(requestId, { sessionId, resolve });
     });
   }
 
@@ -368,4 +481,63 @@ function createAsyncQueue<T>(): AsyncIterable<T> & { push: (item: T) => void; en
       };
     }
   };
+}
+
+function createUserInputElicitationSchema(
+  question: string,
+  choices: string[],
+  allowFreeform: boolean
+): ElicitationSchema {
+  if (choices.length && allowFreeform) {
+    return {
+      type: "object",
+      properties: {
+        selection: {
+          type: "string",
+          title: "选择",
+          description: question,
+          enum: choices
+        },
+        answer: {
+          type: "string",
+          title: "自定义输入",
+          description: "如果上面的选项不合适，可以填写自定义回答。",
+          minLength: 1
+        }
+      }
+    };
+  }
+
+  if (choices.length) {
+    return {
+      type: "object",
+      properties: {
+        selection: {
+          type: "string",
+          title: "选择",
+          description: question,
+          enum: choices
+        }
+      },
+      required: ["selection"]
+    };
+  }
+
+  return {
+    type: "object",
+    properties: {
+      answer: {
+        type: "string",
+        title: "回答",
+        description: question,
+        minLength: 1
+      }
+    },
+    required: ["answer"]
+  };
+}
+
+function stringField(content: Record<string, ElicitationFieldValue>, key: string): string {
+  const value = content[key];
+  return typeof value === "string" ? value.trim() : "";
 }
