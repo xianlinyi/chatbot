@@ -91,6 +91,10 @@ export class MockAgentProvider implements AgentProvider {
     yield { type: "done" };
   }
 
+  async sendMessageText(): Promise<string> {
+    return "hello";
+  }
+
   async enqueuePrompt(sessionId: string, prompt: string): Promise<boolean> {
     if (!this.activePromptSessionIds.has(sessionId)) {
       return false;

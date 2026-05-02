@@ -27,8 +27,10 @@ describe("API routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/event-stream");
     expect(response.body).toContain('data: {"type":"session","sessionId":"session-1","created":true}');
-    expect(response.body).toContain('data: {"type":"delta","content":"hel"}');
-    expect(response.body).toContain('data: {"type":"delta","content":"lo"}');
+    expect(response.body).toContain('"eventType":"runtime.state"');
+    expect(response.body).toContain('"state":"TASK_STRUCTURED"');
+    expect(response.body).toContain('"state":"SKILL_SELECTED"');
+    expect(response.body).toContain('data: {"type":"delta","content":"hello"}');
     expect(response.body).toContain('data: {"type":"done"}');
 
     await app.close();

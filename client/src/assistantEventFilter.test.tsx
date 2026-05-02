@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { formatAssistantEventForDisplay } from "./assistantEventFilter.js";
 
 describe("assistantEventFilter", () => {
-  it("formats only configured fields for assistant message events", () => {
+  it("formats plain assistant message content directly", () => {
     expect(
       formatAssistantEventForDisplay("assistant.message", {
         messageId: "msg-1",
@@ -19,16 +19,7 @@ describe("assistantEventFilter", () => {
         outputTokens: 12,
         ignoredTopLevel: "hidden"
       })
-    ).toBe(
-      [
-        "assistant.message",
-        "content: hello",
-        "toolRequests[0].name: bash",
-        "toolRequests[0].arguments.cmd: git status",
-        "",
-        ""
-      ].join("\n")
-    );
+    ).toBe("hello");
   });
 
   it("returns empty text when the event has no enabled fields with values", () => {

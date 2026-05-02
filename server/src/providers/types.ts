@@ -107,6 +107,7 @@ export type AgentStreamEvent =
 export interface AgentProvider {
   getInfo(): AgentInfo;
   createSession(): Promise<AgentSession>;
+  sendMessageText?(sessionId: string, prompt: string): Promise<string>;
   sendMessageStream(sessionId: string, prompt: string): AsyncIterable<AgentStreamEvent>;
   enqueuePrompt(sessionId: string, prompt: string): Promise<boolean>;
   respondToUserInput(sessionId: string, requestId: string, answer: string, wasFreeform: boolean): Promise<boolean>;

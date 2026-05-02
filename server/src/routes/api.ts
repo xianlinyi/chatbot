@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "../config/types.js";
 import type { ElicitationResult } from "../providers/types.js";
 import type { AgentProvider } from "../providers/types.js";
+import type { AgentTaskService } from "../agent/AgentTaskService.js";
 import type { SessionManager } from "../sessions/sessionManager.js";
 import { redactSecrets } from "../utils/redact.js";
 import { optionalString, requiredString } from "./requestValidation.js";
@@ -11,6 +12,7 @@ type RegisterApiOptions = {
   config: AppConfig;
   provider: AgentProvider;
   sessions: SessionManager;
+  agentTasks?: AgentTaskService;
 };
 
 export async function registerApi(app: FastifyInstance, options: RegisterApiOptions): Promise<void> {
@@ -39,7 +41,9 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
       created = true;
     }
 
-    const stream = await options.sessions.sendMessageStream(sessionId, message);
+    const stream = options.agentTasks
+      ? options.agentTasks.runMessageStream(message)
+      : await options.sessions.sendMessageStream(sessionId, message);
     if (!stream) {
       return reply.code(404).send({ error: "Unknown or expired session." });
     }

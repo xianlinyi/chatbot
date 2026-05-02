@@ -209,6 +209,21 @@ export class GithubCopilotAgentProvider implements AgentProvider {
     }
   }
 
+  async sendMessageText(sessionId: string, prompt: string): Promise<string> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error("Unknown or expired session.");
+    }
+
+    this.log("Sending text-only message to Copilot session", {
+      sessionId,
+      promptLength: prompt.length
+    });
+
+    const result = await session.send({ prompt });
+    return typeof result === "string" ? result.trim() : "";
+  }
+
   async closeSession(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     this.sessions.delete(sessionId);

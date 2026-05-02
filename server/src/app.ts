@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AppConfig } from "./config/types.js";
 import type { AgentProvider } from "./providers/types.js";
+import { AgentTaskService } from "./agent/AgentTaskService.js";
 import { registerApi } from "./routes/api.js";
 import { SessionManager } from "./sessions/sessionManager.js";
 
@@ -21,6 +22,7 @@ export async function buildApp({ config, provider }: BuildAppOptions) {
     }
   });
   const sessions = new SessionManager(provider);
+  const agentTasks = new AgentTaskService(provider, process.cwd(), app.log.child({ component: "agent-runtime" }));
   sessions.startCleanup();
 
   app.addHook("onClose", async () => {
@@ -34,7 +36,8 @@ export async function buildApp({ config, provider }: BuildAppOptions) {
   await app.register(registerApi, {
     config,
     provider,
-    sessions
+    sessions,
+    agentTasks
   });
 
   const staticRoot = getStaticRoot();
