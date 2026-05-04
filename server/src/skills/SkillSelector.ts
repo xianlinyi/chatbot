@@ -20,12 +20,7 @@ export class SkillSelector {
       );
     });
 
-    if (matched.length === 0) {
-      const fallback = this.registry.get("default-investigation");
-      return fallback ? [fallback] : [];
-    }
-
-    return sortBySpecificity(matched, taskSpec);
+    return matched.length ? sortBySpecificity(matched, taskSpec) : [];
   }
 }
 

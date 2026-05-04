@@ -42,7 +42,7 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
     }
 
     const stream = options.agentTasks
-      ? options.agentTasks.runMessageStream(message)
+      ? options.agentTasks.runMessageStream(sessionId, message)
       : await options.sessions.sendMessageStream(sessionId, message);
     if (!stream) {
       return reply.code(404).send({ error: "Unknown or expired session." });
@@ -112,12 +112,20 @@ export async function registerApi(app: FastifyInstance, options: RegisterApiOpti
         return reply.code(400).send({ error: "answer must be a non-empty string." });
       }
 
-      const accepted = await options.sessions.respondToUserInput(
-        activeSessionId,
-        activeRequestId,
-        responseText,
-        typeof wasFreeform === "boolean" ? wasFreeform : true
-      );
+      const normalizedWasFreeform = typeof wasFreeform === "boolean" ? wasFreeform : true;
+      const accepted =
+        (await options.agentTasks?.respondToUserInput(
+          activeSessionId,
+          activeRequestId,
+          responseText,
+          normalizedWasFreeform
+        )) ||
+        (await options.sessions.respondToUserInput(
+          activeSessionId,
+          activeRequestId,
+          responseText,
+          normalizedWasFreeform
+        ));
       if (!accepted) {
         return reply.code(404).send({ error: "Unknown or expired input request." });
       }

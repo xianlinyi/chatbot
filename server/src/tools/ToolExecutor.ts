@@ -172,19 +172,12 @@ export class ToolExecutor {
   }
 
   private mockDbQuery(step: WorkflowStep, context: SkillExecutionContext): ToolResult {
-    const orderId = entityValue(context, "order_id") ?? "unknown";
-    const mockByStep: Record<string, unknown> = {
-      check_source_event: { source: "mock", table: "payment_order", orderId, status: "SUCCESS" },
-      check_artifact_generated: { source: "mock", table: "payment_proof", orderId, status: "GENERATED", proofId: "proof_mock_001" },
-      check_notification_created: {
-        source: "mock",
-        table: "notification_record",
-        orderId,
-        recordFound: false,
-        reason: "recipient_email missing"
-      }
+    const raw = {
+      source: "mock",
+      stepId: step.id,
+      entities: context.task.taskSpec.entities,
+      note: "No built-in database dataset is configured for this step."
     };
-    const raw = mockByStep[step.id] ?? { source: "mock", orderId, note: "No mock dataset for this DB step." };
     return {
       success: true,
       summary: `Mock readonly db.query completed for ${step.id}.`,
@@ -193,17 +186,12 @@ export class ToolExecutor {
   }
 
   private mockLogSearch(step: WorkflowStep, context: SkillExecutionContext): ToolResult {
-    const orderId = entityValue(context, "order_id") ?? "unknown";
-    const raw =
-      step.id === "check_event_published"
-        ? { source: "mock", service: "proof-service", orderId, event: "payment.proof.created", published: true }
-        : {
-            source: "mock",
-            service: "notification-service",
-            orderId,
-            deliveryStatus: "NOT_CREATED",
-            message: "recipient_email missing"
-          };
+    const raw = {
+      source: "mock",
+      stepId: step.id,
+      entities: context.task.taskSpec.entities,
+      note: "No built-in log dataset is configured for this step."
+    };
 
     return {
       success: true,

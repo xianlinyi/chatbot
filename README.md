@@ -49,6 +49,47 @@ The chat API is `POST /api/messages` with `{ "sessionId": "optional-existing-id"
 
 At startup, the server logs the active provider, model, instructions, custom agents, skills, MCP servers, permission mode, and persistence status. Secret-looking fields are redacted before logging.
 
+## Agent Markdown Skills
+
+Agent skills can be authored as Markdown files and loaded by the underlying agent runtime. At startup the server resolves `resource/skills`, `resources/skills`, any paths listed in `provider.skillDirectories`, and git-backed `provider.skillSources`, then passes the final directory list to the Copilot SDK as `skillDirectories`.
+
+```md
+# external-bug-triage
+
+Type: code
+Description: Investigate repository bug reports.
+
+## Triggers
+- intents: fix_or_investigate_bug
+- keywords: stacktrace, repro
+
+## Workflow
+- inspect | Inspect related files | code.search | true
+- explain | Explain root cause | copilot.reason | true
+
+## Guards
+- minimal_patch_only
+```
+
+Agent skills can also be loaded from a git branch:
+
+```json
+{
+  "provider": {
+    "skillSources": [
+      {
+        "type": "git",
+        "url": "https://github.com/example/skills.git",
+        "branch": "main",
+        "path": "skills"
+      }
+    ]
+  }
+}
+```
+
+When a skill includes `## Workflow` or `## Steps`, the server also builds a local workflow checklist for monitoring. The agent receives an instruction to execute one workflow step at a time and emit hidden HTML comments as each step starts and completes; the server converts those markers into `workflow.step_started` and `workflow.step_completed` events. After each step, the local state machine confirms completion with `workflow.step_confirmed` and sends a runtime continuation prompt that opens only the next required step with `workflow.step_gate_opened`. This confirmation is fully server-side: Copilot permission requests are auto-approved by the provider and the frontend never needs to approve workflow progress. The final check emits `workflow.completed` or `workflow.incomplete`.
+
 ## Docker
 
 ```bash

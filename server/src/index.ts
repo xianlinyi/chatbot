@@ -1,9 +1,13 @@
 import { loadConfig } from "./config/loadConfig.js";
 import { buildApp } from "./app.js";
 import { createProvider } from "./providers/createProvider.js";
+import { resolveAgentSkillDirectories } from "./skills/AgentSkillDirectories.js";
+import { loadAgentSkillWorkflows } from "./skills/AgentSkillWorkflows.js";
 import { redactSecrets } from "./utils/redact.js";
 
 const config = await loadConfig();
+config.provider.skillDirectories = await resolveAgentSkillDirectories(config, process.cwd());
+config.provider.skillWorkflows = await loadAgentSkillWorkflows(config.provider.skillDirectories);
 const provider = createProvider(config);
 const app = await buildApp({ config, provider });
 const { port, host } = config.server;

@@ -28,11 +28,18 @@ const defaultConfig: AppConfig = {
       "You are a local coding agent exposed through a lightweight web chat. When the user asks you to perform an engineering task, keep working through the concrete steps until the task is completed or a real blocker is reached. Do not stop after saying you will do something. Use available tools, report concise progress, and ask for confirmation only when it is required to avoid an unsafe or ambiguous action.",
     customAgents: [],
     skillDirectories: [],
+    skillSources: [],
+    skillWorkflows: [],
     disabledSkills: [],
     mcpServers: {},
     permissions: {
       mode: "allow-all"
     }
+  },
+  memory: {
+    enabled: false,
+    vaultPath: "~/agent-memory/MyVault",
+    queryLimit: 5
   }
 };
 
@@ -40,6 +47,7 @@ type PartialConfig = Partial<AppConfig> & {
   server?: Partial<AppConfig["server"]>;
   provider?: Partial<AppConfig["provider"]>;
   app?: Partial<AppConfig["app"]>;
+  memory?: Partial<AppConfig["memory"]>;
 };
 
 export async function loadConfig(cwd = process.cwd()): Promise<AppConfig> {
@@ -96,11 +104,17 @@ function mergeConfig(base: AppConfig, override: PartialConfig): AppConfig {
       ...base.app,
       ...override.app
     },
+    memory: {
+      ...base.memory,
+      ...override.memory
+    },
     provider: {
       ...base.provider,
       ...override.provider,
       customAgents: override.provider?.customAgents ?? base.provider.customAgents,
       skillDirectories: override.provider?.skillDirectories ?? base.provider.skillDirectories,
+      skillSources: override.provider?.skillSources ?? base.provider.skillSources,
+      skillWorkflows: override.provider?.skillWorkflows ?? base.provider.skillWorkflows,
       disabledSkills: override.provider?.disabledSkills ?? base.provider.disabledSkills,
       mcpServers: override.provider?.mcpServers ?? base.provider.mcpServers,
       auth: {

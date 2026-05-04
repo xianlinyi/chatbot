@@ -29,6 +29,7 @@ export type TaskSpec = {
   domain: string | null;
   scenario: string | null;
   entities: EntityRef[];
+  context_terms: string[];
   missing_info: string[];
   risk_level: TaskRiskLevel;
   recommended_skills: string[];
@@ -90,11 +91,52 @@ export type SkillDefinition = {
   guards?: string[];
 };
 
+export type ContextTermKind = "entity" | "task" | "skill" | "prompt";
+
+export type ContextTerm = {
+  term: string;
+  reason: string;
+  kind: ContextTermKind;
+  required: boolean;
+};
+
+export type MemoryContextPage = {
+  title: string;
+  path: string;
+  summary: string;
+  snippet: string;
+  score: number;
+};
+
+export type MemoryContextSource = {
+  id: string;
+  path: string;
+  label: string;
+  kind: string;
+  uri?: string;
+};
+
+export type ResolvedContextTerm = {
+  term: ContextTerm;
+  pages: MemoryContextPage[];
+  sources: MemoryContextSource[];
+};
+
+export type MemoryContext = {
+  loadedAt: string;
+  enabled: boolean;
+  vaultPath?: string;
+  terms: ContextTerm[];
+  resolved: ResolvedContextTerm[];
+  missing: ContextTerm[];
+  error?: string;
+};
+
 export type ContextBundle = {
   projects: ProjectContext[];
   concepts: BusinessConcept[];
   systems: SystemContext[];
-  memory: Record<string, unknown>;
+  memory: MemoryContext;
 };
 
 export type ProjectContext = {

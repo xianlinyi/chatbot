@@ -8,6 +8,7 @@ export const taskSpecStructuredJsonSchema: JsonSchema = {
     "domain",
     "scenario",
     "entities",
+    "context_terms",
     "missing_info",
     "risk_level",
     "recommended_skills",
@@ -43,6 +44,10 @@ export const taskSpecStructuredJsonSchema: JsonSchema = {
         }
       }
     },
+    context_terms: {
+      type: "array",
+      items: { type: "string" }
+    },
     missing_info: {
       type: "array",
       items: { type: "string" }
@@ -60,13 +65,10 @@ export const taskSpecStructuredJsonSchema: JsonSchema = {
 };
 
 export const taskSpecStructuredJsonInstructions = [
-  "如果用户是在查业务问题，intent=diagnose_business_issue。",
-  "如果用户是在描述测试问题、报错、截图、期望结果，intent=fix_or_investigate_bug。",
-  "如果用户要求 commit，intent=git_commit。",
-  "只读查询 risk_level=readonly。",
-  "写文件或改代码 risk_level=code_write_requires_review。",
-  "commit、push、重发通知 risk_level=write_requires_confirmation。",
-  "数据库更新、生产部署 risk_level=dangerous_requires_manual。",
-  "recommended_skills 只能从 artifact-delivery-diagnosis、async-chain-diagnosis、code-bug-localization、git-commit-workflow、default-investigation 中选择。",
+  "不要依赖内置业务规则或内置 skill 名称。",
+  "只能从用户输入中抽取明确表达的信息；无法判断时 intent=unknown。",
+  "context_terms 填用户输入中需要查询上下文含义的业务词、代码对象、缩写、系统名、实体名；不要做普通字面分词。",
+  "只读查询 risk_level=readonly；写文件或改代码 risk_level=code_write_requires_review；commit、push 或外部副作用 risk_level=write_requires_confirmation；高危操作 risk_level=dangerous_requires_manual。",
+  "recommended_skills 只填写上游或外部配置明确提供的 skill；没有明确匹配时填 []。",
   "不要添加 taskId 或 rawInput 字段，这两个字段由 Runtime 填充。"
 ];

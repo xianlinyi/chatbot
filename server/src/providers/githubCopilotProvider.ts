@@ -11,6 +11,8 @@ import type {
   ElicitationSchema
 } from "./types.js";
 import type { CopilotEvent } from "./copilotResponseParser.js";
+import { AgentWorkflowMonitor } from "../workflow/AgentWorkflowMonitor.js";
+import { workflowInstruction } from "../skills/AgentSkillWorkflows.js";
 
 type CopilotSession = {
   on: {
@@ -65,6 +67,7 @@ type PendingElicitation = {
 type AsyncQueue<T> = AsyncIterable<T> & { push: (item: T) => void; end: () => void };
 
 const RESPONSE_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+const WORKFLOW_STEP_GATE_ATTEMPTS = 20;
 
 export class GithubCopilotAgentProvider implements AgentProvider {
   private readonly sessions = new Map<string, CopilotSession>();
@@ -123,12 +126,17 @@ export class GithubCopilotAgentProvider implements AgentProvider {
         streaming: true,
         systemMessage: {
           mode: "append",
-          content: this.config.provider.instructions
+          content: appendAgentWorkflowInstructions(
+            this.config.provider.instructions,
+            workflowInstruction(this.config.provider.skillWorkflows)
+          )
         },
         customAgents: this.config.provider.customAgents,
         skillDirectories: this.config.provider.skillDirectories,
         disabledSkills: this.config.provider.disabledSkills,
         mcpServers: this.config.provider.mcpServers,
+        // Runtime workflow gating is fully server-side. Tool permissions are auto-approved here so
+        // no workflow step waits on a frontend approval button.
         onPermissionRequest: async () => ({ kind: "approved" }),
         onUserInputRequest: (request: UserInputRequest) => this.requestUserInput(id, request),
         onElicitationRequest: (context: ElicitationContext) => this.handleElicitationRequest(context)
@@ -154,6 +162,7 @@ export class GithubCopilotAgentProvider implements AgentProvider {
     }
 
     const queue = createAsyncQueue<AgentStreamEvent>();
+    const workflowMonitor = new AgentWorkflowMonitor(this.config.provider.skillWorkflows);
     const runStats: MessageRunStats = {
       toolEventCount: 0
     };
@@ -171,7 +180,11 @@ export class GithubCopilotAgentProvider implements AgentProvider {
         sessionId,
         eventType: event.type
       });
-      queue.push({ type: "copilot_event", eventType: event.type, data: event.data ?? {} });
+      const streamEvent: AgentStreamEvent = { type: "copilot_event", eventType: event.type, data: event.data ?? {} };
+      queue.push(streamEvent);
+      for (const monitorEvent of workflowMonitor.observe(streamEvent)) {
+        queue.push(monitorEvent);
+      }
     });
     const unsubscribeError = session.on("error", (event) => {
       const message = event.data?.message ?? "Agent stream failed.";
@@ -184,13 +197,55 @@ export class GithubCopilotAgentProvider implements AgentProvider {
       promptLength: prompt.length
     });
 
-    void session
-      .sendAndWait({ prompt }, RESPONSE_IDLE_TIMEOUT_MS)
+    void (async () => {
+      await session.sendAndWait({ prompt }, RESPONSE_IDLE_TIMEOUT_MS);
+
+      for (let attempt = 1; attempt <= WORKFLOW_STEP_GATE_ATTEMPTS; attempt += 1) {
+        for (const confirmEvent of workflowMonitor.confirmationEvents()) {
+          queue.push(confirmEvent);
+        }
+
+        const nextReports = workflowMonitor.nextStepReports();
+        if (nextReports.length === 0) {
+          break;
+        }
+
+        queue.push({
+          type: "assistant_event",
+          eventType: "workflow.step_gate_opened",
+          data: {
+            attempt,
+            skills: nextReports.map((report) => report.skill),
+            nextSteps: Object.fromEntries(
+              nextReports.map((report) => [report.skill, report.steps.map((step) => step.id)])
+            )
+          }
+        });
+
+        this.log("Opening next Copilot workflow step gate", {
+          sessionId,
+          attempt,
+          nextReports
+        });
+
+        await session.sendAndWait(
+          { prompt: workflowMonitor.nextStepPrompt(nextReports), mode: "immediate" },
+          RESPONSE_IDLE_TIMEOUT_MS
+        );
+      }
+
+      for (const confirmEvent of workflowMonitor.confirmationEvents()) {
+        queue.push(confirmEvent);
+      }
+    })()
       .then(() => {
         this.log("Copilot session completed message", {
           sessionId,
           toolEventCount: runStats.toolEventCount
         });
+        for (const monitorEvent of workflowMonitor.finishEvents()) {
+          queue.push(monitorEvent);
+        }
         queue.push({ type: "done" });
         queue.end();
       })
@@ -457,6 +512,11 @@ export class GithubCopilotAgentProvider implements AgentProvider {
       error: error instanceof Error ? error.message : String(error)
     });
   }
+}
+
+function appendAgentWorkflowInstructions(instructions: string, workflowInstructions: string): string {
+  if (!workflowInstructions) return instructions;
+  return `${instructions}\n\n${workflowInstructions}`;
 }
 
 function createAsyncQueue<T>(): AsyncIterable<T> & { push: (item: T) => void; end: () => void } {

@@ -16,6 +16,11 @@ export const testConfig: AppConfig = {
     name: "Test Chatbot",
     icon: "spark"
   },
+  memory: {
+    enabled: false,
+    vaultPath: "~/agent-memory/MyVault",
+    queryLimit: 5
+  },
   provider: {
     name: "github-copilot",
     model: "test-model",
@@ -33,6 +38,8 @@ export const testConfig: AppConfig = {
       }
     ],
     skillDirectories: ["./skills"],
+    skillSources: [],
+    skillWorkflows: [],
     disabledSkills: [],
     mcpServers: {
       demo: {

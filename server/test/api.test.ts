@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AgentTaskService } from "../src/agent/AgentTaskService.js";
 import { buildApp } from "../src/app.js";
 import { MockAgentProvider, testConfig } from "./helpers.js";
 
@@ -17,7 +18,7 @@ describe("API routes", () => {
   });
 
   it("creates a session lazily and streams agent chunks in order", async () => {
-    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider() });
+    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider(), agentTasks: false });
     const response = await app.inject({
       method: "POST",
       url: "/api/messages",
@@ -27,10 +28,8 @@ describe("API routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["content-type"]).toContain("text/event-stream");
     expect(response.body).toContain('data: {"type":"session","sessionId":"session-1","created":true}');
-    expect(response.body).toContain('"eventType":"runtime.state"');
-    expect(response.body).toContain('"state":"TASK_STRUCTURED"');
-    expect(response.body).toContain('"state":"SKILL_SELECTED"');
-    expect(response.body).toContain('data: {"type":"delta","content":"hello"}');
+    expect(response.body).toContain('data: {"type":"delta","content":"hel"}');
+    expect(response.body).toContain('data: {"type":"delta","content":"lo"}');
     expect(response.body).toContain('data: {"type":"done"}');
 
     await app.close();
@@ -51,7 +50,7 @@ describe("API routes", () => {
   });
 
   it("forwards user input answers to the active agent session", async () => {
-    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider() });
+    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider(), agentTasks: false });
     await app.inject({
       method: "POST",
       url: "/api/messages",
@@ -70,8 +69,55 @@ describe("API routes", () => {
     await app.close();
   });
 
+  it("forwards user input answers to pending AgentTaskService requests first", async () => {
+    let resolveAnswer: ((answer: string) => void) | undefined;
+    const agentTasks = {
+      async *runMessageStream() {
+        yield {
+          type: "input_request",
+          requestId: "runtime-request-1",
+          question: "补充 context",
+          allowFreeform: true
+        };
+        const answer = await new Promise<string>((resolve) => {
+          resolveAnswer = resolve;
+        });
+        yield { type: "delta", content: answer };
+        yield { type: "done" };
+      },
+      async respondToUserInput(_sessionId: string, requestId: string, answer: string) {
+        if (requestId !== "runtime-request-1" || !resolveAnswer) {
+          return false;
+        }
+
+        resolveAnswer(answer);
+        return true;
+      }
+    } as unknown as AgentTaskService;
+    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider(), agentTasks });
+    const stream = app.inject({
+      method: "POST",
+      url: "/api/messages",
+      payload: { message: "hello" }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/user-input",
+      payload: { sessionId: "session-1", requestId: "runtime-request-1", answer: "foo=bar" }
+    });
+    const body = await stream;
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    expect(body.body).toContain('data: {"type":"delta","content":"foo=bar"}');
+
+    await app.close();
+  });
+
   it("forwards elicitation answers to the active agent session", async () => {
-    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider() });
+    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider(), agentTasks: false });
     await app.inject({
       method: "POST",
       url: "/api/messages",
@@ -110,7 +156,7 @@ describe("API routes", () => {
 
   it("enqueues prompts for an active agent session", async () => {
     const provider = new MockAgentProvider();
-    const app = await buildApp({ config: testConfig, provider });
+    const app = await buildApp({ config: testConfig, provider, agentTasks: false });
     await app.inject({
       method: "POST",
       url: "/api/messages",
@@ -132,7 +178,7 @@ describe("API routes", () => {
 
   it("stops an active session", async () => {
     const provider = new MockAgentProvider();
-    const app = await buildApp({ config: testConfig, provider });
+    const app = await buildApp({ config: testConfig, provider, agentTasks: false });
     await app.inject({
       method: "POST",
       url: "/api/messages",
@@ -148,6 +194,23 @@ describe("API routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true });
     expect(provider.closed.has("session-1")).toBe(true);
+
+    await app.close();
+  });
+
+  it("uses AgentTaskService by default without built-in skills", async () => {
+    const app = await buildApp({ config: testConfig, provider: new MockAgentProvider() });
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/messages",
+      payload: { message: "policyNo=1234567890 的 payment proof 收到了没" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain('"eventType":"runtime.state"');
+    expect(response.body).toContain('"skills":[]');
+    expect(response.body).not.toContain("artifact-delivery-diagnosis");
+    expect(response.body).toContain('data: {"type":"delta","content":"hello"}');
 
     await app.close();
   });

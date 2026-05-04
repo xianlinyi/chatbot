@@ -24,6 +24,31 @@ export type CustomAgentConfig = {
   infer?: boolean;
 };
 
+export type SkillSourceConfig = {
+  type: "git";
+  url: string;
+  branch?: string;
+  path?: string;
+};
+
+export type AgentSkillWorkflowStep = {
+  id: string;
+  goal: string;
+  required?: boolean;
+};
+
+export type AgentSkillWorkflow = {
+  name: string;
+  sourcePath: string;
+  steps: AgentSkillWorkflowStep[];
+};
+
+export type MemoryConfig = {
+  enabled: boolean;
+  vaultPath: string;
+  queryLimit: number;
+};
+
 export type AppConfig = {
   server: {
     host: string;
@@ -46,10 +71,13 @@ export type AppConfig = {
     instructions: string;
     customAgents: CustomAgentConfig[];
     skillDirectories: string[];
+    skillSources: SkillSourceConfig[];
+    skillWorkflows: AgentSkillWorkflow[];
     disabledSkills: string[];
     mcpServers: Record<string, McpServerConfig>;
     permissions: {
       mode: PermissionMode;
     };
   };
+  memory: MemoryConfig;
 };

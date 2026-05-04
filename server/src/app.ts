@@ -4,25 +4,25 @@ import Fastify from "fastify";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { AgentTaskService } from "./agent/AgentTaskService.js";
 import type { AppConfig } from "./config/types.js";
 import type { AgentProvider } from "./providers/types.js";
-import { AgentTaskService } from "./agent/AgentTaskService.js";
 import { registerApi } from "./routes/api.js";
 import { SessionManager } from "./sessions/sessionManager.js";
 
 type BuildAppOptions = {
   config: AppConfig;
   provider: AgentProvider;
+  agentTasks?: AgentTaskService | false;
 };
 
-export async function buildApp({ config, provider }: BuildAppOptions) {
+export async function buildApp({ config, provider, agentTasks }: BuildAppOptions) {
   const app = Fastify({
     logger: {
       level: process.env.LOG_LEVEL ?? "info"
     }
   });
   const sessions = new SessionManager(provider);
-  const agentTasks = new AgentTaskService(provider, process.cwd(), app.log.child({ component: "agent-runtime" }));
   sessions.startCleanup();
 
   app.addHook("onClose", async () => {
@@ -37,7 +37,7 @@ export async function buildApp({ config, provider }: BuildAppOptions) {
     config,
     provider,
     sessions,
-    agentTasks
+    agentTasks: agentTasks === false ? undefined : (agentTasks ?? new AgentTaskService(provider, process.cwd(), app.log, config.memory))
   });
 
   const staticRoot = getStaticRoot();

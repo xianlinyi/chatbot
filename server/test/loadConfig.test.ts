@@ -78,6 +78,64 @@ describe("loadConfig", () => {
 
     await expect(loadConfig(cwd)).rejects.toThrow("provider.auth.token is required");
   });
+
+  it("reads git skill sources from config", async () => {
+    const cwd = await writeConfig({
+      provider: {
+        auth: {
+          token: "config-token",
+          tokenType: "fine-grained-pat",
+          useLoggedInUser: false
+        },
+        skillDirectories: ["./resource/skills"],
+        skillSources: [
+          {
+            type: "git",
+            url: "https://github.com/example/skills.git",
+            branch: "release",
+            path: "skills"
+          }
+        ]
+      }
+    });
+
+    const config = await loadConfig(cwd);
+
+    expect(config.provider.skillDirectories).toEqual(["./resource/skills"]);
+    expect(config.provider.skillSources).toEqual([
+      {
+        type: "git",
+        url: "https://github.com/example/skills.git",
+        branch: "release",
+        path: "skills"
+      }
+    ]);
+  });
+
+  it("reads memory context config", async () => {
+    const cwd = await writeConfig({
+      memory: {
+        enabled: true,
+        vaultPath: "/tmp/test-memory-vault",
+        queryLimit: 3
+      },
+      provider: {
+        auth: {
+          token: "config-token",
+          tokenType: "fine-grained-pat",
+          useLoggedInUser: false
+        }
+      }
+    });
+
+    const config = await loadConfig(cwd);
+
+    expect(config.memory).toEqual({
+      enabled: true,
+      vaultPath: "/tmp/test-memory-vault",
+      queryLimit: 3
+    });
+  });
 });
 
 async function writeConfig(config: Record<string, unknown>): Promise<string> {

@@ -1,9 +1,11 @@
+import { nanoid } from "nanoid";
 import type { AgentStreamEvent } from "../providers/types.js";
-import { ContextProvider } from "../context/ContextProvider.js";
+import { ContextProvider, parseContextDefinitionAnswer } from "../context/ContextProvider.js";
 import { CopilotSdkAdapter } from "../copilot/CopilotSdkAdapter.js";
 import { StructuredJsonProvider } from "../copilot/StructuredJsonProvider.js";
 import { EvidenceService } from "../evidence/EvidenceService.js";
 import type { AgentProvider } from "../providers/types.js";
+import type { MemoryConfig } from "../config/types.js";
 import { PiiMaskingService } from "../policy/PiiMaskingService.js";
 import { ToolPolicyEngine } from "../policy/ToolPolicyEngine.js";
 import { SkillSelector } from "../skills/SkillSelector.js";
@@ -15,6 +17,17 @@ import type { AgentTask, TaskState } from "../model/agentTypes.js";
 import { ResponseGenerator } from "./ResponseGenerator.js";
 import { TaskParser } from "./TaskParser.js";
 
+const MAX_CONTEXT_CLARIFICATION_ROUNDS = 2;
+
+type PendingRuntimeInput = {
+  sessionId: string;
+  resolve: (answer: { answer: string; wasFreeform: boolean }) => void;
+};
+
+export type AgentTaskServiceOptions = {
+  contextProvider?: ContextProvider;
+};
+
 export class AgentTaskService {
   private readonly copilot: CopilotSdkAdapter;
   private readonly parser: TaskParser;
@@ -23,16 +36,19 @@ export class AgentTaskService {
   private readonly evidence: EvidenceService;
   private readonly workflow: WorkflowEngine;
   private readonly responseGenerator: ResponseGenerator;
+  private readonly pendingInputs = new Map<string, PendingRuntimeInput>();
 
   constructor(
     provider: AgentProvider,
     workspaceRoot = process.cwd(),
-    private readonly logger: DebugLogger = noopDebugLogger
+    private readonly logger: DebugLogger = noopDebugLogger,
+    memoryConfig?: MemoryConfig,
+    options: AgentTaskServiceOptions = {}
   ) {
     const masking = new PiiMaskingService();
     this.copilot = new CopilotSdkAdapter(provider, masking);
     this.parser = new TaskParser(new StructuredJsonProvider(this.copilot, masking));
-    this.contextProvider = new ContextProvider(workspaceRoot);
+    this.contextProvider = options.contextProvider ?? new ContextProvider(workspaceRoot, memoryConfig);
     this.evidence = new EvidenceService(withComponent(logger, "evidence"));
     const workflowLogger = withComponent(logger, "workflow");
     this.workflow = new WorkflowEngine(
@@ -44,7 +60,7 @@ export class AgentTaskService {
     this.responseGenerator = new ResponseGenerator(this.copilot);
   }
 
-  async *runMessageStream(message: string): AsyncIterable<AgentStreamEvent> {
+  async *runMessageStream(sessionId: string, message: string): AsyncIterable<AgentStreamEvent> {
     this.logger.debug({ messageLength: message.length }, "Agent task request received");
     const now = new Date().toISOString();
     const taskSpec = await this.parser.parse(message);
@@ -89,21 +105,8 @@ export class AgentTaskService {
       return;
     }
 
-    task.state = "CONTEXT_LOADED";
-    task.context = await this.contextProvider.load(taskSpec);
-    yield stateEvent(task, "CONTEXT_LOADED", { context: task.context });
-    this.logger.debug(
-      {
-        taskId: task.id,
-        projectCount: task.context.projects.length,
-        conceptCount: task.context.concepts.length,
-        systemCount: task.context.systems.length
-      },
-      "Agent task context loaded"
-    );
-    this.logState(task, "CONTEXT_LOADED");
-
-    task.selectedSkills = this.skillSelector.select(taskSpec, task.context);
+    const baseContext = this.contextProvider.loadBase();
+    task.selectedSkills = this.skillSelector.select(taskSpec, baseContext);
     task.state = "SKILL_SELECTED";
     yield stateEvent(task, "SKILL_SELECTED", {
       skills: task.selectedSkills.map((skill) => skill.name)
@@ -117,6 +120,75 @@ export class AgentTaskService {
       "Agent task skills selected"
     );
     this.logState(task, "SKILL_SELECTED");
+
+    task.state = "CONTEXT_LOADED";
+    task.context = await this.contextProvider.load(taskSpec, task.selectedSkills);
+    yield stateEvent(task, "CONTEXT_LOADED", { context: task.context });
+    this.logger.debug(
+      {
+        taskId: task.id,
+        projectCount: task.context.projects.length,
+        conceptCount: task.context.concepts.length,
+        systemCount: task.context.systems.length
+      },
+      "Agent task context loaded"
+    );
+    this.logState(task, "CONTEXT_LOADED");
+
+    for (let round = 1; task.context.memory.missing.length > 0 && round <= MAX_CONTEXT_CLARIFICATION_ROUNDS; round += 1) {
+      const missing = task.context.memory.missing;
+      yield {
+        type: "assistant_event",
+        eventType: "runtime.context_missing",
+        data: {
+          taskId: task.id,
+          round,
+          missing
+        }
+      };
+      const requestId = nanoid();
+      const answerPromise = this.waitForRuntimeInput(sessionId, requestId);
+      yield {
+        type: "input_request",
+        requestId,
+        question: createContextMissingQuestion(missing, round),
+        allowFreeform: true
+      };
+
+      const response = await answerPromise;
+      const parsed = parseContextDefinitionAnswer(response.answer);
+      const storedTerms = await this.contextProvider.ingestContextDefinitions(parsed.definitions, task.id);
+      yield {
+        type: "assistant_event",
+        eventType: "runtime.context_definitions_saved",
+        data: {
+          taskId: task.id,
+          round,
+          storedTerms,
+          invalidLines: parsed.invalidLines
+        }
+      };
+
+      task.context = await this.contextProvider.load(taskSpec, task.selectedSkills);
+      yield stateEvent(task, "CONTEXT_LOADED", {
+        context: task.context,
+        clarificationRound: round
+      });
+      this.logState(task, "CONTEXT_LOADED");
+    }
+
+    if (task.context.memory.missing.length > 0) {
+      task.state = "FAILED";
+      yield stateEvent(task, "FAILED", {
+        missingContextTerms: task.context.memory.missing
+      });
+      yield {
+        type: "delta",
+        content: createContextStillMissingMessage(task.context.memory.missing)
+      };
+      yield { type: "done" };
+      return;
+    }
 
     let currentState: TaskState = task.state;
     for await (const event of this.workflow.run(task, task.context)) {
@@ -207,6 +279,31 @@ export class AgentTaskService {
     yield { type: "done" };
   }
 
+  async respondToUserInput(
+    sessionId: string,
+    requestId: string,
+    answer: string,
+    wasFreeform: boolean
+  ): Promise<boolean> {
+    const pending = this.pendingInputs.get(requestId);
+    if (!pending || pending.sessionId !== sessionId) {
+      return false;
+    }
+
+    this.pendingInputs.delete(requestId);
+    pending.resolve({ answer, wasFreeform });
+    return true;
+  }
+
+  private waitForRuntimeInput(
+    sessionId: string,
+    requestId: string
+  ): Promise<{ answer: string; wasFreeform: boolean }> {
+    return new Promise((resolve) => {
+      this.pendingInputs.set(requestId, { sessionId, resolve });
+    });
+  }
+
   private logState(task: AgentTask, state: TaskState): void {
     this.logger.debug({ taskId: task.id, state, evidenceCount: task.evidence.length }, "Agent task state changed");
   }
@@ -230,4 +327,30 @@ function withComponent(logger: DebugLogger, component: string): DebugLogger {
   return {
     debug: (details, message) => logger.debug({ ...details, component }, message)
   };
+}
+
+function createContextMissingQuestion(
+  missing: NonNullable<AgentTask["context"]>["memory"]["missing"],
+  round: number
+): string {
+  return [
+    `缺少以下 context 词项，请按每行「词=含义」补充（第 ${round}/${MAX_CONTEXT_CLARIFICATION_ROUNDS} 轮）：`,
+    "",
+    ...missing.map((term) => `- ${term.term}: ${term.reason}`),
+    "",
+    "示例：",
+    `${missing[0]?.term ?? "词项"}=这里写这个词项在当前任务里的含义`
+  ].join("\n");
+}
+
+function createContextStillMissingMessage(
+  missing: NonNullable<AgentTask["context"]>["memory"]["missing"]
+): string {
+  return [
+    "仍缺少以下 context 词项，暂时不能继续执行：",
+    "",
+    ...missing.map((term) => `- ${term.term}: ${term.reason}`),
+    "",
+    "请用每行「词=含义」补充后再发起任务。"
+  ].join("\n");
 }
